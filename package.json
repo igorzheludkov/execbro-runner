@@ -8,7 +8,7 @@
         "execbro-worker": "./build/worker/daemon.js"
     },
     "scripts": {
-        "build": "tsc && chmod 755 build/cli/task.js",
+        "build": "tsc && chmod 755 build/cli/task.js build/worker/daemon.js",
         "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
         "test:unit": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathPatterns='test/unit'",
         "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathPatterns='test/integration'"
