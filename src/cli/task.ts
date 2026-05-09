@@ -4,6 +4,7 @@ import { runAdd } from "./commands/add.js";
 import { runList } from "./commands/list.js";
 import { runShow } from "./commands/show.js";
 import { runDevices } from "./commands/devices.js";
+import { runClean } from "./commands/clean.js";
 
 const program = new Command();
 program.name("execbro-task").description("Enqueue and inspect ExecBro autonomous tasks");
@@ -38,5 +39,20 @@ program
 program.command("list").description("List all tasks by status").action(runList);
 program.command("show <id>").description("Show a task descriptor and log path").action(runShow);
 program.command("devices").description("List available iOS sims and Android AVDs").action(runDevices);
+
+program
+    .command("clean [id]")
+    .description("Remove a task's descriptor, worktree, and log. Provide an id, or use --all-failed / --all-done")
+    .option("--all-failed", "Clean all tasks in the failed/ bucket")
+    .option("--all-done", "Clean all tasks in the done/ bucket")
+    .option("--force", "Allow cleaning queued/running tasks (use with caution)")
+    .action(async (id: string | undefined, opts: { allFailed?: boolean; allDone?: boolean; force?: boolean }) => {
+        try {
+            await runClean({ id, allFailed: opts.allFailed, allDone: opts.allDone, force: opts.force });
+        } catch (e) {
+            console.error(`Error: ${(e as Error).message}`);
+            process.exit(1);
+        }
+    });
 
 program.parseAsync().catch(e => { console.error(e); process.exit(1); });
