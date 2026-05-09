@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runAdd } from "./commands/add.js";
+import { runList } from "./commands/list.js";
+import { runShow } from "./commands/show.js";
+import { runDevices } from "./commands/devices.js";
 
 const program = new Command();
 program.name("execbro-task").description("Enqueue and inspect ExecBro autonomous tasks");
@@ -27,5 +30,9 @@ program
             process.exit(1);
         }
     });
+
+program.command("list").description("List all tasks by status").action(runList);
+program.command("show <id>").description("Show a task descriptor and log path").action(runShow);
+program.command("devices").description("List available iOS sims and Android AVDs").action(runDevices);
 
 program.parseAsync().catch(e => { console.error(e); process.exit(1); });
