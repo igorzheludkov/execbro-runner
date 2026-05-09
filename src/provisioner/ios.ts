@@ -28,6 +28,15 @@ export function uninstallApp(udid: string, bundleId: string): void {
     // Ignore failure; app may not be installed.
 }
 
+function killProcessOnPort(port: number): void {
+    // lsof -ti :<port> prints just the PID(s); kill them. Best-effort.
+    const r = spawnSync("lsof", ["-ti", `:${port}`], { encoding: "utf8" });
+    const pids = r.stdout.split("\n").map(s => s.trim()).filter(Boolean);
+    for (const pid of pids) {
+        spawnSync("kill", ["-9", pid], { encoding: "utf8" });
+    }
+}
+
 export async function startMetro(
     worktreePath: string,
     port: number,
@@ -35,6 +44,9 @@ export async function startMetro(
     metroSessionName: string,
 ): Promise<void> {
     if (tmux.sessionExists(metroSessionName)) tmux.killSession(metroSessionName);
+    // Belt-and-suspenders: free the port if a zombie process is still holding it
+    // (stale Metro from a previous failed run, etc.).
+    killProcessOnPort(port);
     tmux.newDetachedSession(metroSessionName, worktreePath);
     tmux.sendKeys(
         metroSessionName,
@@ -47,6 +59,12 @@ export async function startMetro(
             return r.status === 0 ? true : null;
         } catch { return null; }
     }, { timeoutMs: timeoutSec * 1000, intervalMs: 2000, label: `metro ready on :${port}` });
+}
+
+export function stopMetro(metroSessionName: string, port: number): void {
+    if (tmux.sessionExists(metroSessionName)) tmux.killSession(metroSessionName);
+    // Tmux kill doesn't always reap the child Metro process cleanly.
+    killProcessOnPort(port);
 }
 
 /**
@@ -81,7 +99,10 @@ export async function buildAndInstall(
     bundleId: string,
     timeoutSec: number,
 ): Promise<void> {
-    execSync(`RCT_METRO_PORT=${metroPort} npx react-native run-ios --udid ${udid}`, {
+    // --no-packager: we already started Metro on metroPort; otherwise the CLI
+    // detects the existing Metro and prompts interactively for an alternate port,
+    // which hangs forever in non-interactive mode.
+    execSync(`RCT_METRO_PORT=${metroPort} npx react-native run-ios --udid ${udid} --no-packager`, {
         cwd: worktreePath, stdio: "inherit",
     });
     await pollUntil(async () => {

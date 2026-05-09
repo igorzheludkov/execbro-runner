@@ -69,8 +69,18 @@ function removeWorktreeAndDir(repo: string, taskId: string): void {
     if (existsSync(wt)) rmSync(wt, { recursive: true, force: true });
 }
 
+function killOrphanTmuxSessions(taskId: string): void {
+    for (const name of [`execbro-${taskId}`, `execbro-metro-${taskId}`]) {
+        const has = spawnSync("tmux", ["has-session", "-t", name], { encoding: "utf8" });
+        if (has.status === 0) {
+            spawnSync("tmux", ["kill-session", "-t", name], { encoding: "utf8" });
+        }
+    }
+}
+
 function cleanOne(loc: QueueLocation): void {
     const id = loc.descriptor.id;
+    killOrphanTmuxSessions(id);
     removeWorktreeAndDir(loc.descriptor.repo, id);
     if (existsSync(logPath(id))) unlinkSync(logPath(id));
     unlinkSync(loc.descriptorPath);
