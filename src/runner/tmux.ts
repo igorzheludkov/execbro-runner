@@ -29,15 +29,18 @@ export function sendKeys(name: string, text: string, pressEnter: boolean): void 
 
 /**
  * Paste a multi-line string as a single message into the tmux session.
- * Uses load-buffer + paste-buffer so that embedded newlines do NOT act as
- * Enter in Claude Code's TUI. Caller is responsible for sending Enter
- * afterwards if the target app needs a separate submit keypress.
+ * Uses load-buffer + paste-buffer with -p (bracketed paste mode) so the
+ * receiving app sees a single paste event rather than a stream of
+ * keystrokes. Without -p, Claude Code's TUI interprets each embedded
+ * newline as Enter, which mangles or prematurely submits the prompt.
+ *
+ * Caller is responsible for sending Enter afterwards to actually submit.
  */
 export function pasteText(name: string, text: string): void {
     const buf = `execbro-paste-${Date.now()}`;
     const load = spawnSync("tmux", ["load-buffer", "-b", buf, "-"], { input: text, encoding: "utf8" });
     if (load.status !== 0) throw new Error(`tmux load-buffer failed: ${load.stderr}`);
-    const paste = tmux(["paste-buffer", "-b", buf, "-t", name]);
+    const paste = tmux(["paste-buffer", "-p", "-b", buf, "-t", name]);
     if (paste.code !== 0) throw new Error(`tmux paste-buffer failed: ${paste.stderr}`);
     tmux(["delete-buffer", "-b", buf]);
 }

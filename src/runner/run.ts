@@ -110,10 +110,13 @@ export async function runTask(
                 bundleId,
             },
         });
-        // Use paste-buffer instead of send-keys so embedded newlines do NOT
-        // submit partial messages to Claude Code's TUI.
+        // Use paste-buffer (bracketed paste) so embedded newlines do NOT
+        // submit partial messages to Claude Code's TUI. Then a brief pause
+        // for the TUI's input handler to process the paste, and an explicit
+        // Enter to submit.
         tmux.pasteText(sessionName, composed);
-        tmux.sendKeys(sessionName, "", true); // Enter to submit
+        await new Promise(r => setTimeout(r, 1000));
+        tmux.sendKeys(sessionName, "", true);
 
         // Wait for done
         log("waiting for agent to finish");
