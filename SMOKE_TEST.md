@@ -15,18 +15,38 @@ If anything fails, fix iteratively and commit the fixes; the worker, runner, pro
     - With a `package.json` containing an `"execbro": { "iosBundleId": "<your.bundle.id>" }` field
     - With `origin` set to a Bitbucket remote (`git@bitbucket.org:workspace/repo.git` or `https://bitbucket.org/...`)
     - Buildable on iOS via `npx react-native run-ios`
-- One iOS simulator UDID — find it via:
 
-    ```bash
-    cd ~/rn-devtools/execbro-runner
-    ./build/cli/task.js devices
-    ```
+## Step 0 — Install the CLI binaries on your PATH (one-time)
 
-    Pick a row whose runtime matches the app's deployment target.
+```bash
+cd ~/rn-devtools/execbro-runner
+npm install
+npm run build
+npm link
+```
+
+`npm link` symlinks `execbro-task` and `execbro-worker` into your global node bin (`/opt/homebrew/bin/` on Apple Silicon, `/usr/local/bin/` on Intel). Verify:
+
+```bash
+which execbro-task   # should print a path
+execbro-task --help  # should print the usage
+```
+
+If you ever rebuild (`npm run build`), the link still points at the same files — no re-link needed.
+
+To uninstall: `cd ~/rn-devtools/execbro-runner && npm unlink -g`.
+
+## Step 1 — Find your iOS simulator UDID
+
+```bash
+execbro-task devices
+```
+
+Pick a row whose runtime matches the app's deployment target. Copy its UDID (the long hyphenated string in the IDENTIFIER column).
 
 ---
 
-## Step 1 — Write a config
+## Step 2 — Write a config
 
 ```bash
 mkdir -p ~/.execbro
@@ -39,7 +59,7 @@ cat > ~/.execbro/config.json <<EOF
 EOF
 ```
 
-## Step 2 — Write a tiny task
+## Step 3 — Write a tiny task
 
 ```bash
 cat > /tmp/test-task.md <<EOF
@@ -49,28 +69,27 @@ EOF
 
 This is intentionally trivial — the goal is to validate the loop, not the agent's coding skill.
 
-## Step 3 — Start the worker (terminal 1)
+## Step 4 — Start the worker (terminal 1)
 
 ```bash
-cd ~/rn-devtools/execbro-runner
-./build/worker/daemon.js
+execbro-worker
 ```
 
 Expected first log line: `[worker] started, 1 slot(s) configured`.
 
-## Step 4 — Enqueue the task (terminal 2)
+## Step 5 — Enqueue the task (terminal 2)
 
 ```bash
 cd <your-rn-app-repo>
-~/rn-devtools/execbro-runner/build/cli/task.js add /tmp/test-task.md
+execbro-task add /tmp/test-task.md
 ```
 
 Expected: `Enqueued <task-id>` plus repo and base branch lines.
 
-## Step 5 — Watch the loop (terminal 3)
+## Step 6 — Watch the loop (terminal 3)
 
 ```bash
-~/rn-devtools/execbro-runner/build/cli/task.js list
+execbro-task list
 tmux ls
 tail -f ~/.execbro/logs/<task-id>.jsonl
 ```
@@ -99,7 +118,7 @@ When the agent finishes, the worker should:
 10. Show a macOS notification with the PR URL
 11. Move the descriptor to `done/`
 
-## Step 6 — Document any issues found and fix iteratively
+## Step 7 — Document any issues found and fix iteratively
 
 Common issues to expect on first run:
 
@@ -110,7 +129,7 @@ Common issues to expect on first run:
 - `git push` fails because Bitbucket SSH isn't set up → run `git push -u origin task/<id>` manually from the worktree to verify your auth.
 - Worker doesn't kick off when descriptor lands → `ls ~/.execbro/queue/inbox/` confirms the file is there; check `chokidar` output in worker terminal.
 
-## Step 7 — Commit fixes
+## Step 8 — Commit fixes
 
 After the loop works end-to-end at least once:
 

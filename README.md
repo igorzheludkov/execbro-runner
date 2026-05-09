@@ -27,13 +27,18 @@ Phase 2 (not implemented): Android, both-platform tasks, headless mode, init wiz
 ```bash
 npm install
 npm run build
-./build/cli/task.js devices                    # list available sims
-# write ~/.execbro/config.json (see SMOKE_TEST.md step 1)
-./build/worker/daemon.js &                     # start the daemon
-./build/cli/task.js add /path/to/task.md       # enqueue a task
-./build/cli/task.js list                       # check status
-./build/cli/task.js show <id>                  # inspect one task
+npm link                       # one-time: puts execbro-task and execbro-worker on your PATH
+
+execbro-task devices           # list available sims, pick a UDID
+# write ~/.execbro/config.json (see SMOKE_TEST.md step 2)
+
+execbro-worker &               # start the daemon
+execbro-task add /path/to/task.md   # enqueue a task
+execbro-task list              # check status
+execbro-task show <id>         # inspect one task
 ```
+
+To uninstall the global symlinks: `npm unlink -g` from this directory.
 
 ## Architecture
 
