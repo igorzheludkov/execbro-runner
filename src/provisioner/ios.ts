@@ -33,9 +33,19 @@ export function uninstallApp(udid: string, bundleId: string): void {
  * `simctl launch` foregrounds it. Used both after a fresh install (defense
  * in depth, since run-ios already launches) and after the skip-rebuild
  * branch where nothing else would launch the app.
+ *
+ * `metroPort` is forwarded to the app via SIMCTL_CHILD_RCT_METRO_PORT.
+ * React Native's RCTBundleURLProvider reads this at runtime so the app
+ * connects to OUR Metro instance regardless of the port baked in at
+ * build time. We also terminate any running instance first so the env
+ * change takes effect (otherwise simctl launch silently no-ops).
  */
-export function launchApp(udid: string, bundleId: string): void {
-    const r = spawnSync("xcrun", ["simctl", "launch", udid, bundleId], { encoding: "utf8" });
+export function launchApp(udid: string, bundleId: string, metroPort: number): void {
+    spawnSync("xcrun", ["simctl", "terminate", udid, bundleId], { encoding: "utf8" });
+    const r = spawnSync("xcrun", ["simctl", "launch", udid, bundleId], {
+        encoding: "utf8",
+        env: { ...process.env, SIMCTL_CHILD_RCT_METRO_PORT: String(metroPort) },
+    });
     if (r.status !== 0) {
         throw new Error(`simctl launch ${bundleId} failed: ${r.stderr.trim() || r.stdout.trim()}`);
     }

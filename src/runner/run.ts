@@ -90,8 +90,10 @@ export async function runTask(
 
         // Always launch — simctl launch is idempotent and brings the app to
         // the foreground whether we just installed it or skipped the rebuild.
-        log(`launching app ${bundleId}`);
-        launchApp(slot.deviceId, bundleId);
+        // metroPort is forwarded as RCT_METRO_PORT so the app connects to
+        // our Metro instance regardless of what port was baked in at build.
+        log(`launching app ${bundleId} (Metro on :${slot.metroPort})`);
+        launchApp(slot.deviceId, bundleId, slot.metroPort);
 
         // Run agent
         log("starting tmux session for agent");
