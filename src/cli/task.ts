@@ -14,13 +14,17 @@ program
     .option("--repo <path>", "Repo root (default: auto-detect from file)")
     .option("--mode <mode>", "Execution mode: tmux | headless (Phase 1: tmux only)")
     .option("--platform <platform>", "ios | android | both (Phase 1: ios only)")
-    .action(async (file: string, opts: { repo?: string; mode?: string; platform?: string }) => {
+    .option("--allow-dirty", "Skip the uncommitted-changes check on the target repo")
+    .option("--force", "Enqueue even if a task with the same prompt file is already active")
+    .action(async (file: string, opts: { repo?: string; mode?: string; platform?: string; allowDirty?: boolean; force?: boolean }) => {
         try {
             const desc = await runAdd({
                 file,
                 repo: opts.repo,
                 mode: opts.mode as "tmux" | "headless" | undefined,
                 platform: opts.platform as "ios" | "android" | "both" | undefined,
+                allowDirty: opts.allowDirty,
+                force: opts.force,
             });
             console.log(`Enqueued ${desc.id}`);
             console.log(`  repo: ${desc.repo}`);
