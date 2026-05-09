@@ -1,7 +1,19 @@
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isDone } from "../../../src/runner/doneDetection.js";
+import { isDone, encodeProjectPath } from "../../../src/runner/doneDetection.js";
+
+describe("encodeProjectPath", () => {
+    it("replaces both / and . with - to match Claude Code's encoding", () => {
+        expect(encodeProjectPath("/Users/me/.execbro/worktrees/abc"))
+            .toBe("-Users-me--execbro-worktrees-abc");
+    });
+
+    it("handles paths without dots", () => {
+        expect(encodeProjectPath("/Users/me/projects/foo"))
+            .toBe("-Users-me-projects-foo");
+    });
+});
 
 describe("isDone", () => {
     let dir: string;

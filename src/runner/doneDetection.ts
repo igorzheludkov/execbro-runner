@@ -51,6 +51,14 @@ export function findNewestTranscript(projectDir: string, sinceMs: number): strin
     return best?.path ?? null;
 }
 
+/**
+ * Encode a worktree path the same way Claude Code does for its
+ * ~/.claude/projects/ subdirectory naming. Both `/` and `.` are replaced
+ * with `-`, so `/Users/me/.execbro/worktrees/x` becomes
+ * `-Users-me--execbro-worktrees-x` (note the double dash where `.execbro`
+ * was). Getting this wrong silently makes done-detection fail because the
+ * transcript directory is never found.
+ */
 export function encodeProjectPath(cwd: string): string {
-    return cwd.replace(/\//g, "-");
+    return cwd.replace(/[/.]/g, "-");
 }
