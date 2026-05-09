@@ -28,6 +28,19 @@ export function uninstallApp(udid: string, bundleId: string): void {
     // Ignore failure; app may not be installed.
 }
 
+/**
+ * Launch the app on the sim. Idempotent — if the app is already running,
+ * `simctl launch` foregrounds it. Used both after a fresh install (defense
+ * in depth, since run-ios already launches) and after the skip-rebuild
+ * branch where nothing else would launch the app.
+ */
+export function launchApp(udid: string, bundleId: string): void {
+    const r = spawnSync("xcrun", ["simctl", "launch", udid, bundleId], { encoding: "utf8" });
+    if (r.status !== 0) {
+        throw new Error(`simctl launch ${bundleId} failed: ${r.stderr.trim() || r.stdout.trim()}`);
+    }
+}
+
 function killProcessOnPort(port: number): void {
     // lsof -ti :<port> prints just the PID(s); kill them. Best-effort.
     const r = spawnSync("lsof", ["-ti", `:${port}`], { encoding: "utf8" });

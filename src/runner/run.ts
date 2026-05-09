@@ -5,7 +5,7 @@ import * as tmux from "./tmux.js";
 import { renderPrompt } from "./prompt.js";
 import { isDone, findNewestTranscript, encodeProjectPath } from "./doneDetection.js";
 import { withRetries, createWorktree, installDependencies } from "../provisioner/shared.js";
-import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods } from "../provisioner/ios.js";
+import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods, launchApp } from "../provisioner/ios.js";
 import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
 import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
 import { commitIfDirty, pushBranch, getRemoteUrl, buildBitbucketPrUrl } from "../bitbucket/push.js";
@@ -87,6 +87,11 @@ export async function runTask(
                 { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });
             setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
         }
+
+        // Always launch — simctl launch is idempotent and brings the app to
+        // the foreground whether we just installed it or skipped the rebuild.
+        log(`launching app ${bundleId}`);
+        launchApp(slot.deviceId, bundleId);
 
         // Run agent
         log("starting tmux session for agent");
