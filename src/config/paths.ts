@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const ROOT = join(homedir(), ".execbro");
+const ROOT = process.env.EXECBRO_HOME ?? join(homedir(), ".execbro");
 
 export const PATHS = {
     root: ROOT,
