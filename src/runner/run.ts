@@ -5,7 +5,7 @@ import * as tmux from "./tmux.js";
 import { renderPrompt } from "./prompt.js";
 import { isDone, findNewestTranscript, encodeProjectPath } from "./doneDetection.js";
 import { withRetries, createWorktree, installDependencies } from "../provisioner/shared.js";
-import { bootIosSimulator, uninstallApp, startMetro, buildAndInstall } from "../provisioner/ios.js";
+import { bootIosSimulator, uninstallApp, startMetro, buildAndInstall, installIosPods } from "../provisioner/ios.js";
 import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
 import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
 import { commitIfDirty, pushBranch, getRemoteUrl, buildBitbucketPrUrl } from "../bitbucket/push.js";
@@ -79,6 +79,9 @@ export async function runTask(
             log(`provisioning: rebuild required (${reason})`);
             log(`provisioning: uninstall app ${bundleId}`);
             uninstallApp(slot.deviceId, bundleId);
+            log("provisioning: pod install");
+            await withRetries(async () => installIosPods(wt),
+                { retries: config.retryProvisioner, backoffMs: 5000, label: "pod install" });
             log("provisioning: build & install app");
             await withRetries(async () => buildAndInstall(wt, slot.deviceId, slot.metroPort, bundleId, config.readinessTimeouts.appInstallSec),
                 { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });

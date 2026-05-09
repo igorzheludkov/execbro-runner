@@ -1,4 +1,6 @@
 import { spawnSync, execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { pollUntil } from "./readiness.js";
 import * as tmux from "../runner/tmux.js";
 
@@ -45,6 +47,31 @@ export async function startMetro(
             return r.status === 0 ? true : null;
         } catch { return null; }
     }, { timeoutMs: timeoutSec * 1000, intervalMs: 2000, label: `metro ready on :${port}` });
+}
+
+/**
+ * Run `pod install` (via bundler if Gemfile present) inside the worktree's ios/ dir.
+ * No-op if there's no ios/ or no Podfile (e.g. Expo managed workflow).
+ *
+ * Modern RN templates use bundler, so we detect ios/Gemfile or repo-root Gemfile
+ * and prefer `bundle exec pod install`. Falls back to bare `pod install`.
+ */
+export function installIosPods(worktreePath: string): void {
+    const iosDir = join(worktreePath, "ios");
+    if (!existsSync(iosDir)) return;
+    if (!existsSync(join(iosDir, "Podfile"))) return;
+
+    const useBundler =
+        existsSync(join(worktreePath, "Gemfile")) ||
+        existsSync(join(iosDir, "Gemfile"));
+
+    if (useBundler) {
+        // Ensure gems are installed before invoking bundler.
+        execSync("bundle install", { cwd: worktreePath, stdio: "inherit" });
+        execSync("bundle exec pod install", { cwd: iosDir, stdio: "inherit" });
+    } else {
+        execSync("pod install", { cwd: iosDir, stdio: "inherit" });
+    }
 }
 
 export async function buildAndInstall(
