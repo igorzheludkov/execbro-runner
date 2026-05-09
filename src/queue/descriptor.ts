@@ -12,6 +12,7 @@ export const DescriptorSchema = z.object({
     dependsOn: z.array(z.string()),
     createdAt: z.string(),
     status: z.enum(["queued", "running", "done", "failed"]),
+    forceRebuild: z.boolean().optional(),
 });
 
 export type TaskDescriptor = z.infer<typeof DescriptorSchema>;

@@ -6,6 +6,8 @@ import { renderPrompt } from "./prompt.js";
 import { isDone, findNewestTranscript, encodeProjectPath } from "./doneDetection.js";
 import { withRetries, createWorktree, installDependencies } from "../provisioner/shared.js";
 import { bootIosSimulator, uninstallApp, startMetro, buildAndInstall } from "../provisioner/ios.js";
+import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
+import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
 import { commitIfDirty, pushBranch, getRemoteUrl, buildBitbucketPrUrl } from "../bitbucket/push.js";
 import { notifyMacos } from "../notify/macos.js";
 import type { TaskDescriptor } from "../queue/descriptor.js";
@@ -57,16 +59,31 @@ export async function runTask(
         await withRetries(async () => bootIosSimulator(slot.deviceId, config.readinessTimeouts.deviceBootSec),
             { retries: config.retryProvisioner, backoffMs: 5000, label: "sim boot" });
 
-        log(`provisioning: uninstall app ${bundleId}`);
-        uninstallApp(slot.deviceId, bundleId);
-
         log(`provisioning: start metro on :${slot.metroPort}`);
         await withRetries(async () => startMetro(wt, slot.metroPort, config.readinessTimeouts.metroReadySec, metroSessionName),
             { retries: config.retryProvisioner, backoffMs: 5000, label: "metro" });
 
-        log("provisioning: build & install app");
-        await withRetries(async () => buildAndInstall(wt, slot.deviceId, slot.metroPort, bundleId, config.readinessTimeouts.appInstallSec),
-            { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });
+        const fingerprint = nativeFingerprint(wt);
+        const cachedFp = getCachedFingerprint(slot.deviceId, bundleId);
+        const installed = isAppInstalledIos(slot.deviceId, bundleId);
+        const forceRebuild = descriptor.forceRebuild ?? false;
+        const canSkipBuild = !forceRebuild && installed && cachedFp === fingerprint;
+
+        if (canSkipBuild) {
+            log(`skipping rebuild: app already installed and native fingerprint matches (${fingerprint.slice(0, 12)})`);
+        } else {
+            const reason = forceRebuild ? "forceRebuild=true"
+                : !installed ? "app not installed"
+                : !cachedFp ? "no cached fingerprint"
+                : "native fingerprint changed";
+            log(`provisioning: rebuild required (${reason})`);
+            log(`provisioning: uninstall app ${bundleId}`);
+            uninstallApp(slot.deviceId, bundleId);
+            log("provisioning: build & install app");
+            await withRetries(async () => buildAndInstall(wt, slot.deviceId, slot.metroPort, bundleId, config.readinessTimeouts.appInstallSec),
+                { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });
+            setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
+        }
 
         // Run agent
         log("starting tmux session for agent");

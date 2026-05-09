@@ -15,6 +15,7 @@ export interface AddOptions {
     platform?: "ios" | "android" | "both";
     allowDirty?: boolean;
     force?: boolean;
+    forceRebuild?: boolean;
 }
 
 function execbroRoot(): string {
@@ -95,6 +96,7 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
         mode: "tmux", platform: "ios", dependsOn: [],
         createdAt: new Date().toISOString(),
         status: "queued",
+        ...(opts.forceRebuild ? { forceRebuild: true } : {}),
     };
     const inboxDir = join(execbroRoot(), "queue", "inbox");
     mkdirSync(inboxDir, { recursive: true });
