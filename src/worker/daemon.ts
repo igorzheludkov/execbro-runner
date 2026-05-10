@@ -4,12 +4,12 @@ import { mkdirSync, existsSync } from "node:fs";
 import chokidar from "chokidar";
 import { loadConfig } from "../config/loader.js";
 import { PATHS, slotLockPath, portLockPath } from "../config/paths.js";
-import { tryClaimSlot } from "../scheduler/slots.js";
+import { tryClaimSlots, type SlotRelease } from "../scheduler/slots.js";
 import { claimPortFromRange } from "../scheduler/ports.js";
 import { listDescriptors, moveDescriptor } from "../queue/transitions.js";
-import { writeDescriptor } from "../queue/descriptor.js";
+import { writeDescriptor, type TaskDescriptor } from "../queue/descriptor.js";
 import { runTask } from "../runner/run.js";
-import type { Config } from "../config/schema.js";
+import type { Config, Slot } from "../config/schema.js";
 
 function ensureDirs(): void {
     mkdirSync(PATHS.queue.inbox, { recursive: true });
@@ -22,32 +22,60 @@ function ensureDirs(): void {
     mkdirSync(PATHS.logs, { recursive: true });
 }
 
-let busy = false;
+const inFlightSlotIds = new Set<number>();
 
-async function tryRunNext(config: Config): Promise<void> {
-    if (busy) return;
-    if (!existsSync(PATHS.queue.inbox)) return;
-    const queued = listDescriptors(PATHS.queue.inbox);
-    if (queued.length === 0) return;
+interface ScheduleAttempt {
+    descriptor: TaskDescriptor;
+    slots: Slot[];
+    slotReleases: SlotRelease[];
+}
 
-    // Phase 1: only iOS, only single slot. Find an iOS slot that's free.
-    const iosSlot = config.slots.find(s => s.platform === "ios");
-    if (!iosSlot) {
-        console.error("No iOS slot configured");
-        return;
-    }
-    const slotRelease = await tryClaimSlot(slotLockPath(iosSlot.id));
-    if (!slotRelease) return;
+async function tryScheduleHead(config: Config): Promise<ScheduleAttempt | null> {
+    if (!existsSync(PATHS.queue.inbox)) return null;
+    const queued = listDescriptors(PATHS.queue.inbox)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    if (queued.length === 0) return null;
 
-    busy = true;
     const descriptor = queued[0];
+    // Strict FIFO: dependsOn must be satisfied; otherwise STOP.
+    if (descriptor.dependsOn.length > 0) {
+        const doneIds = new Set(listDescriptors(PATHS.queue.done).map(d => d.id));
+        if (!descriptor.dependsOn.every(id => doneIds.has(id))) return null;
+    }
+
+    // Group required platforms.
+    const counts = { ios: 0, android: 0 };
+    for (const dev of descriptor.devices) counts[dev.platform]++;
+
+    // Walk config slots in id order; pick free slots per platform up to the count.
+    const candidates: Slot[] = [];
+    const want = { ios: counts.ios, android: counts.android };
+    for (const slot of config.slots.slice().sort((a, b) => a.id - b.id)) {
+        if (inFlightSlotIds.has(slot.id)) continue;
+        if (slot.platform === "ios" && want.ios > 0) {
+            candidates.push(slot); want.ios--;
+        } else if (slot.platform === "android" && want.android > 0) {
+            candidates.push(slot); want.android--;
+        }
+    }
+    if (want.ios !== 0 || want.android !== 0) return null;
+
+    const slotReleases = await tryClaimSlots(candidates.map(s => slotLockPath(s.id)));
+    if (!slotReleases) return null;
+
+    for (const s of candidates) inFlightSlotIds.add(s.id);
+    return { descriptor, slots: candidates, slotReleases };
+}
+
+async function runScheduled(attempt: ScheduleAttempt, config: Config): Promise<void> {
+    const { descriptor, slots, slotReleases } = attempt;
     const inboxPath = join(PATHS.queue.inbox, `${descriptor.id}.json`);
     const runningPath = join(PATHS.queue.running, `${descriptor.id}.json`);
     descriptor.status = "running";
+    descriptor.assignedSlotIds = slots.map(s => s.id);
     writeDescriptor(inboxPath, descriptor);
     moveDescriptor(inboxPath, runningPath);
-
-    console.log(`[worker] picked up ${descriptor.id} on slot ${iosSlot.id}`);
+    console.log(`[worker] picked up ${descriptor.id} on slots ${slots.map(s => s.id).join(",")}`);
 
     const portClaim = await claimPortFromRange(config.metroPortRange, portLockPath);
     let outcome: { status: "done" | "failed"; reason?: string };
@@ -58,7 +86,7 @@ async function tryRunNext(config: Config): Promise<void> {
     } else {
         console.log(`[worker] ${descriptor.id} assigned Metro port ${portClaim.port}`);
         try {
-            outcome = await runTask(descriptor, iosSlot, portClaim.port, config);
+            outcome = await runTask(descriptor, slots, portClaim.port, config);
         } catch (e) {
             outcome = { status: "failed", reason: (e as Error).message };
         }
@@ -69,12 +97,22 @@ async function tryRunNext(config: Config): Promise<void> {
     writeDescriptor(runningPath, descriptor);
     const finalDir = outcome.status === "done" ? PATHS.queue.done : PATHS.queue.failed;
     moveDescriptor(runningPath, join(finalDir, `${descriptor.id}.json`));
-    await slotRelease();
-    busy = false;
+    for (const release of slotReleases) await release();
+    for (const s of slots) inFlightSlotIds.delete(s.id);
     console.log(`[worker] ${descriptor.id} → ${outcome.status}${outcome.reason ? ` (${outcome.reason})` : ""}`);
 
-    // Immediately attempt the next one.
     void tryRunNext(config);
+}
+
+async function tryRunNext(config: Config): Promise<void> {
+    // Loop until the head-of-queue task can no longer be scheduled.
+    while (true) {
+        const attempt = await tryScheduleHead(config);
+        if (!attempt) return;
+        // Fire-and-forget so the next iteration can attempt the next-oldest task
+        // with whatever slots remain free.
+        void runScheduled(attempt, config);
+    }
 }
 
 async function main(): Promise<void> {
