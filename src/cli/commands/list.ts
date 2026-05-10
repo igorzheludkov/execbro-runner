@@ -15,8 +15,9 @@ export async function runList(): Promise<void> {
         const list: TaskDescriptor[] = listDescriptors(dir);
         console.log(`\n${label.toUpperCase()} (${list.length})`);
         for (const d of list) {
+            const port = d.assignedMetroPort ? `  port=${d.assignedMetroPort}` : "";
             const session = d.claudeSessionId ? `  session=${d.claudeSessionId}` : "";
-            console.log(`  ${d.id}  [${d.platform}]${session}  ${d.repo}`);
+            console.log(`  ${d.id}  [${d.platform}]${port}${session}  ${d.repo}`);
         }
     }
 }
