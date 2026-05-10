@@ -9,63 +9,86 @@ import {
 } from "../../../src/queue/descriptor.js";
 
 describe("DescriptorSchema", () => {
-    it("validates a headless ios descriptor", () => {
+    it("validates a single-device ios descriptor", () => {
         const d = {
-            id: "2026-05-09-143022-fix-login",
+            id: "2026-05-10-100000-fix-x",
             promptFile: "/abs/path/plan.md",
             repo: "/abs/path/repo",
             baseBranch: "main",
-            platform: "ios",
+            devices: [{ platform: "ios" }],
             dependsOn: [],
-            createdAt: "2026-05-09T14:30:22Z",
+            createdAt: "2026-05-10T10:00:00Z",
             status: "queued",
         };
         expect(() => DescriptorSchema.parse(d)).not.toThrow();
     });
 
-    it("accepts a descriptor with claudeSessionId set", () => {
-        const parsed = DescriptorSchema.parse({
+    it("validates a multi-device descriptor with mixed platforms", () => {
+        const d = {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios", dependsOn: [],
-            createdAt: "2026-05-10T00:00:00Z", status: "running",
-            claudeSessionId: "6999810d-ed0e-43a0-879f-d4b4ff46953b",
-        });
-        expect(parsed.claudeSessionId).toBe("6999810d-ed0e-43a0-879f-d4b4ff46953b");
+            devices: [{ platform: "ios" }, { platform: "android" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        };
+        expect(() => DescriptorSchema.parse(d)).not.toThrow();
     });
 
-    it("accepts a descriptor without claudeSessionId (optional field)", () => {
-        const parsed = DescriptorSchema.parse({
+    it("validates a same-platform pair", () => {
+        const d = {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios", dependsOn: [],
-            createdAt: "2026-05-10T00:00:00Z", status: "queued",
-        });
-        expect(parsed.claudeSessionId).toBeUndefined();
+            devices: [{ platform: "ios" }, { platform: "ios" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        };
+        expect(() => DescriptorSchema.parse(d)).not.toThrow();
     });
 
-    it("rejects a descriptor that still carries the removed mode field", () => {
+    it("rejects an empty devices array", () => {
         expect(() => DescriptorSchema.parse({
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux",
-            platform: "ios", dependsOn: [],
-            createdAt: "2026-05-10T00:00:00Z", status: "queued",
+            devices: [],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
         })).toThrow();
     });
 
-    it("accepts a descriptor with assignedMetroPort set", () => {
+    it("rejects a descriptor that still carries the legacy platform field", () => {
+        expect(() => DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            platform: "ios",
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        })).toThrow();
+    });
+
+    it("accepts assignedSlotIds when present", () => {
         const parsed = DescriptorSchema.parse({
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios", dependsOn: [],
-            createdAt: "2026-05-10T00:00:00Z", status: "running",
+            devices: [{ platform: "ios" }, { platform: "android" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "running",
+            assignedSlotIds: [1, 2],
+        });
+        expect(parsed.assignedSlotIds).toEqual([1, 2]);
+    });
+
+    it("accepts assignedMetroPort when present", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            devices: [{ platform: "ios" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "running",
             assignedMetroPort: 8092,
         });
         expect(parsed.assignedMetroPort).toBe(8092);
     });
 
-    it("rejects assignedMetroPort that is not an integer port", () => {
+    it("rejects assignedMetroPort that is not a valid port", () => {
         expect(() => DescriptorSchema.parse({
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios", dependsOn: [],
-            createdAt: "2026-05-10T00:00:00Z", status: "running",
+            devices: [{ platform: "ios" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "running",
             assignedMetroPort: 80,
         })).toThrow();
     });
@@ -92,8 +115,9 @@ describe("read/writeDescriptor", () => {
     it("round-trips a descriptor through disk", () => {
         const d = {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios" as const, dependsOn: [],
-            createdAt: "2026-05-09T14:30:22Z", status: "queued" as const,
+            devices: [{ platform: "ios" as const }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued" as const,
         };
         const path = join(dir, "x.json");
         writeDescriptor(path, d);
@@ -104,7 +128,8 @@ describe("read/writeDescriptor", () => {
     it("writeDescriptor writes valid JSON with 2-space indentation", () => {
         const d = {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios" as const, dependsOn: [],
+            devices: [{ platform: "ios" as const }],
+            dependsOn: [],
             createdAt: "x", status: "queued" as const,
         };
         const path = join(dir, "x.json");

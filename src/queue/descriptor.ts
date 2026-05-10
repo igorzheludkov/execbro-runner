@@ -2,21 +2,27 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { z } from "zod";
 
+const DeviceSchema = z.object({
+    platform: z.enum(["ios", "android"]),
+}).strict();
+
 export const DescriptorSchema = z.object({
     id: z.string().min(1),
     promptFile: z.string().min(1),
     repo: z.string().min(1),
     baseBranch: z.string().min(1),
-    platform: z.enum(["ios", "android", "both"]),
+    devices: z.array(DeviceSchema).min(1),
     dependsOn: z.array(z.string()),
     createdAt: z.string(),
     status: z.enum(["queued", "running", "done", "failed"]),
     forceRebuild: z.boolean().optional(),
     claudeSessionId: z.string().optional(),
     assignedMetroPort: z.number().int().min(1024).max(65535).optional(),
+    assignedSlotIds: z.array(z.number().int().positive()).optional(),
 }).strict();
 
 export type TaskDescriptor = z.infer<typeof DescriptorSchema>;
+export type DeviceDecl = z.infer<typeof DeviceSchema>;
 
 function pad(n: number): string {
     return n.toString().padStart(2, "0");
