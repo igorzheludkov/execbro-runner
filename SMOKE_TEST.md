@@ -146,3 +146,29 @@ git commit -m "fix(phase-1): smoke-test fixes from end-to-end run"
 You can `git log` on the new `task/<task-id>` branch in your RN app repo and see at least one commit by the agent. You can click the PR URL from the notification and land in the Bitbucket "Create pull request" page with source and dest branches pre-filled. You can `cat ~/.execbro/queue/done/<task-id>.json` and see `"status": "done"`.
 
 That's Phase 1 working.
+
+## Multi-device scenarios (added 2026-05-10)
+
+Prerequisite: `~/.execbro/config.json` has at least 2 iOS slots **and** 1 Android slot configured (hand-edit if `init` hasn't been re-run with the multi-device wizard yet).
+
+### Scenario A — Concurrent single-device tasks (iOS + Android in parallel)
+
+1. Boot one iOS sim and one Android emulator (or let provisioning boot them).
+2. Enqueue an iOS-only task: `execbro-task add path/to/ios-plan.md --devices ios`.
+3. Within 30s, enqueue an Android-only task: `execbro-task add path/to/android-plan.md --devices android`.
+4. **Expected:** `execbro-task list` shows both tasks in `RUNNING`, with different `slots=` and different `port=` values. The worker log shows two interleaved `picked up <id>` lines.
+
+### Scenario B — Two devices on shared Metro (visual parity)
+
+1. Enqueue: `execbro-task add path/to/parity-plan.md --devices ios,android`.
+2. **Expected:**
+    - `execbro-task list` shows `[ios,android]` and `slots=1,2` (or whichever slot ids).
+    - Worker log shows ONE Metro start, then `boot 2 device(s) in parallel`, then both apps registering with Metro on the same port.
+    - Agent preamble (peek at the JSONL log under `~/.execbro/logs/<id>.jsonl`) shows both devices listed under `Devices:` with the multi-device verification suffix.
+
+### Scenario C — FIFO blocking on insufficient slots
+
+1. With config of (1 iOS + 1 Android), enqueue first: `execbro-task add multi.md --devices ios,ios` (needs 2 iOS slots).
+2. Then enqueue: `execbro-task add solo.md --devices ios`.
+3. **Expected:** Both tasks sit in `QUEUED`. Worker is idle (no `picked up` lines). This is the strict-FIFO trade-off — the head-of-queue task can't claim 2 iOS slots, and the younger single-iOS task is NOT allowed to skip ahead.
+4. Cleanup: `execbro-task clean <multi-id>` — the second task should now run.
