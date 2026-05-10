@@ -11,8 +11,8 @@ function cachePath(): string {
     return join(execbroRoot(), "cache", "installed.json");
 }
 
-function key(deviceId: string, bundleId: string): string {
-    return `${deviceId}::${bundleId}`;
+function key(deviceId: string, bundleId: string, metroPort: number): string {
+    return `${deviceId}::${bundleId}::${metroPort}`;
 }
 
 function readCache(): Record<string, string> {
@@ -31,13 +31,13 @@ function writeCache(cache: Record<string, string>): void {
     writeFileSync(path, JSON.stringify(cache, null, 2), "utf8");
 }
 
-export function getCachedFingerprint(deviceId: string, bundleId: string): string | null {
-    return readCache()[key(deviceId, bundleId)] ?? null;
+export function getCachedFingerprint(deviceId: string, bundleId: string, metroPort: number): string | null {
+    return readCache()[key(deviceId, bundleId, metroPort)] ?? null;
 }
 
-export function setCachedFingerprint(deviceId: string, bundleId: string, fingerprint: string): void {
+export function setCachedFingerprint(deviceId: string, bundleId: string, metroPort: number, fingerprint: string): void {
     const cache = readCache();
-    cache[key(deviceId, bundleId)] = fingerprint;
+    cache[key(deviceId, bundleId, metroPort)] = fingerprint;
     writeCache(cache);
 }
 
