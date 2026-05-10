@@ -50,6 +50,25 @@ describe("DescriptorSchema", () => {
             createdAt: "2026-05-10T00:00:00Z", status: "queued",
         })).toThrow();
     });
+
+    it("accepts a descriptor with assignedMetroPort set", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            platform: "ios", dependsOn: [],
+            createdAt: "2026-05-10T00:00:00Z", status: "running",
+            assignedMetroPort: 8092,
+        });
+        expect(parsed.assignedMetroPort).toBe(8092);
+    });
+
+    it("rejects assignedMetroPort that is not an integer port", () => {
+        expect(() => DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            platform: "ios", dependsOn: [],
+            createdAt: "2026-05-10T00:00:00Z", status: "running",
+            assignedMetroPort: 80,
+        })).toThrow();
+    });
 });
 
 describe("generateTaskId", () => {

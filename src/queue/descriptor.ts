@@ -13,6 +13,7 @@ export const DescriptorSchema = z.object({
     status: z.enum(["queued", "running", "done", "failed"]),
     forceRebuild: z.boolean().optional(),
     claudeSessionId: z.string().optional(),
+    assignedMetroPort: z.number().int().min(1024).max(65535).optional(),
 }).strict();
 
 export type TaskDescriptor = z.infer<typeof DescriptorSchema>;
