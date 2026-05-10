@@ -36,7 +36,7 @@ describe("runAdd", () => {
         expect(desc.promptFile).toBe(promptPath);
         expect(desc.repo).toBe(repoDir);
         expect(desc.baseBranch).toBe("main");
-        expect(desc.platform).toBe("ios");
+        expect(desc.devices).toEqual([{ platform: "ios" }]);
         expect(desc.status).toBe("queued");
     });
 

@@ -7,7 +7,7 @@ function writeDescriptor(dir: string, id: string, status: string = "failed"): vo
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${id}.json`), JSON.stringify({
         id, promptFile: "/p", repo: "/r", baseBranch: "main",
-        platform: "ios", dependsOn: [],
+        devices: [{ platform: "ios" }], dependsOn: [],
         createdAt: "2026-05-09T01:00:00Z", status,
     }));
 }
@@ -63,7 +63,7 @@ describe("runClean", () => {
         const id = "active-1";
         const inboxDescriptor = JSON.stringify({
             id, promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios", dependsOn: [],
+            devices: [{ platform: "ios" }], dependsOn: [],
             createdAt: "2026-05-09T01:00:00Z", status: "queued",
         });
         mkdirSync(join(homeDir, "queue", "inbox"), { recursive: true });
@@ -75,7 +75,7 @@ describe("runClean", () => {
         const id = "active-1";
         const inboxDescriptor = JSON.stringify({
             id, promptFile: "/p", repo: "/r", baseBranch: "main",
-            platform: "ios", dependsOn: [],
+            devices: [{ platform: "ios" }], dependsOn: [],
             createdAt: "2026-05-09T01:00:00Z", status: "queued",
         });
         mkdirSync(join(homeDir, "queue", "inbox"), { recursive: true });

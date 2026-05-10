@@ -3,6 +3,15 @@ import { PATHS } from "../../config/paths.js";
 import { listDescriptors } from "../../queue/transitions.js";
 import type { TaskDescriptor } from "../../queue/descriptor.js";
 
+function formatDevices(d: TaskDescriptor): string {
+    return `[${d.devices.map(dev => dev.platform).join(",")}]`;
+}
+
+function formatSlots(d: TaskDescriptor): string {
+    if (!d.assignedSlotIds || d.assignedSlotIds.length === 0) return "";
+    return `  slots=${d.assignedSlotIds.join(",")}`;
+}
+
 export async function runList(): Promise<void> {
     const buckets: [string, string][] = [
         ["queued", PATHS.queue.inbox],
@@ -17,7 +26,7 @@ export async function runList(): Promise<void> {
         for (const d of list) {
             const port = d.assignedMetroPort ? `  port=${d.assignedMetroPort}` : "";
             const session = d.claudeSessionId ? `  session=${d.claudeSessionId}` : "";
-            console.log(`  ${d.id}  [${d.platform}]${port}${session}  ${d.repo}`);
+            console.log(`  ${d.id}  ${formatDevices(d)}${formatSlots(d)}${port}${session}  ${d.repo}`);
         }
     }
 }

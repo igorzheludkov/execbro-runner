@@ -11,6 +11,11 @@ export async function runShow(id: string): Promise<void> {
         if (existsSync(path)) {
             const d = readDescriptor(path);
             console.log(JSON.stringify(d, null, 2));
+            console.log("\nDevices:");
+            d.devices.forEach((dev, i) => {
+                const slotId = d.assignedSlotIds?.[i];
+                console.log(`  - ${dev.platform}${slotId !== undefined ? ` (slot ${slotId})` : ""}`);
+            });
             console.log(`\nLog: ${logPath(id)} ${existsSync(logPath(id)) ? "(exists)" : "(not yet)"}`);
             return;
         }
