@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderPrompt } from "../../../src/runner/prompt.js";
@@ -37,5 +37,21 @@ describe("renderPrompt", () => {
         });
         expect(result).toContain("{{unknown}}");
         expect(result).toContain("/wt");
+    });
+
+    it("ensureTemplates installs headless-system-prompt.md alongside the other two templates", () => {
+        const homeDir = mkdtempSync(join(tmpdir(), "execbro-tpl-"));
+        process.env.EXECBRO_HOME = homeDir;
+        try {
+            renderPrompt({
+                userPrompt: "test",
+                vars: { worktreePath: "/wt", platform: "ios", deviceId: "d", metroPort: 8081, bundleId: "b" },
+            });
+            for (const name of ["agent-preamble.md", "verification-suffix.md", "headless-system-prompt.md"]) {
+                expect(existsSync(join(homeDir, "templates", name))).toBe(true);
+            }
+        } finally {
+            rmSync(homeDir, { recursive: true, force: true });
+        }
     });
 });

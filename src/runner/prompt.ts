@@ -29,7 +29,7 @@ function ensureTemplates(): void {
     mkdirSync(dir, { recursive: true });
     const here = dirname(fileURLToPath(import.meta.url));
     const builtinDir = join(here, "..", "..", "templates");
-    for (const name of ["agent-preamble.md", "verification-suffix.md"]) {
+    for (const name of ["agent-preamble.md", "verification-suffix.md", "headless-system-prompt.md"]) {
         const dst = join(dir, name);
         if (!existsSync(dst)) {
             const src = join(builtinDir, name);
