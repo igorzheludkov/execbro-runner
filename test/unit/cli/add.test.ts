@@ -36,14 +36,8 @@ describe("runAdd", () => {
         expect(desc.promptFile).toBe(promptPath);
         expect(desc.repo).toBe(repoDir);
         expect(desc.baseBranch).toBe("main");
-        expect(desc.mode).toBe("tmux");
         expect(desc.platform).toBe("ios");
         expect(desc.status).toBe("queued");
-    });
-
-    it("rejects --mode=headless in Phase 1", async () => {
-        await expect(runAdd({ file: promptPath, mode: "headless" }))
-            .rejects.toThrow(/phase 2/i);
     });
 
     it("throws if the prompt file does not exist", async () => {

@@ -7,13 +7,13 @@ export const DescriptorSchema = z.object({
     promptFile: z.string().min(1),
     repo: z.string().min(1),
     baseBranch: z.string().min(1),
-    mode: z.enum(["tmux", "headless"]),
     platform: z.enum(["ios", "android", "both"]),
     dependsOn: z.array(z.string()),
     createdAt: z.string(),
     status: z.enum(["queued", "running", "done", "failed"]),
     forceRebuild: z.boolean().optional(),
-});
+    claudeSessionId: z.string().optional(),
+}).strict();
 
 export type TaskDescriptor = z.infer<typeof DescriptorSchema>;
 

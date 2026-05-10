@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runClean } from "../../../src/cli/commands/clean.js";
 
-function writeDescriptor(dir: string, id: string): void {
+function writeDescriptor(dir: string, id: string, status: string = "failed"): void {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${id}.json`), JSON.stringify({
         id, promptFile: "/p", repo: "/r", baseBranch: "main",
-        mode: "tmux", platform: "ios", dependsOn: [],
-        createdAt: "2026-05-09T01:00:00Z", status: "failed",
+        platform: "ios", dependsOn: [],
+        createdAt: "2026-05-09T01:00:00Z", status,
     }));
 }
 
@@ -63,7 +63,7 @@ describe("runClean", () => {
         const id = "active-1";
         const inboxDescriptor = JSON.stringify({
             id, promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux", platform: "ios", dependsOn: [],
+            platform: "ios", dependsOn: [],
             createdAt: "2026-05-09T01:00:00Z", status: "queued",
         });
         mkdirSync(join(homeDir, "queue", "inbox"), { recursive: true });
@@ -75,12 +75,44 @@ describe("runClean", () => {
         const id = "active-1";
         const inboxDescriptor = JSON.stringify({
             id, promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux", platform: "ios", dependsOn: [],
+            platform: "ios", dependsOn: [],
             createdAt: "2026-05-09T01:00:00Z", status: "queued",
         });
         mkdirSync(join(homeDir, "queue", "inbox"), { recursive: true });
         writeFileSync(join(homeDir, "queue", "inbox", `${id}.json`), inboxDescriptor);
         await runClean({ id, force: true });
         expect(existsSync(join(homeDir, "queue", "inbox", `${id}.json`))).toBe(false);
+    });
+
+    it("--all-running stops every running task and removes its descriptor, worktree, log, and signal file", async () => {
+        const ids = ["run-a", "run-b"];
+        for (const id of ids) {
+            writeDescriptor(join(homeDir, "queue", "running"), id, "running");
+            mkdirSync(join(homeDir, "worktrees", id), { recursive: true });
+            mkdirSync(join(homeDir, "logs"), { recursive: true });
+            writeFileSync(join(homeDir, "logs", `${id}.jsonl`), "{}");
+            writeFileSync(join(homeDir, "queue", "running", `${id}.signal`),
+                JSON.stringify({ id, signaledAt: "now" }));
+        }
+
+        await runClean({ allRunning: true });
+
+        for (const id of ids) {
+            expect(existsSync(join(homeDir, "queue", "running", `${id}.json`))).toBe(false);
+            expect(existsSync(join(homeDir, "queue", "running", `${id}.signal`))).toBe(false);
+            expect(existsSync(join(homeDir, "worktrees", id))).toBe(false);
+            expect(existsSync(join(homeDir, "logs", `${id}.jsonl`))).toBe(false);
+        }
+    });
+
+    it("--all-running does not require --force", async () => {
+        writeDescriptor(join(homeDir, "queue", "running"), "active-x", "running");
+        mkdirSync(join(homeDir, "worktrees", "active-x"), { recursive: true });
+        await expect(runClean({ allRunning: true })).resolves.toBeUndefined();
+    });
+
+    it("--all-running with no running tasks is a no-op", async () => {
+        mkdirSync(join(homeDir, "queue", "running"), { recursive: true });
+        await expect(runClean({ allRunning: true })).resolves.toBeUndefined();
     });
 });

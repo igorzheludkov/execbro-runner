@@ -9,13 +9,12 @@ import {
 } from "../../../src/queue/descriptor.js";
 
 describe("DescriptorSchema", () => {
-    it("validates a Phase 1 ios descriptor", () => {
+    it("validates a headless ios descriptor", () => {
         const d = {
             id: "2026-05-09-143022-fix-login",
             promptFile: "/abs/path/plan.md",
             repo: "/abs/path/repo",
             baseBranch: "main",
-            mode: "tmux",
             platform: "ios",
             dependsOn: [],
             createdAt: "2026-05-09T14:30:22Z",
@@ -24,15 +23,32 @@ describe("DescriptorSchema", () => {
         expect(() => DescriptorSchema.parse(d)).not.toThrow();
     });
 
-    it("rejects a descriptor with mode 'headless' (Phase 2)", () => {
-        // Phase 1 supports tmux only. Headless rejection is enforced at intake, not in the schema —
-        // this test documents that the schema itself accepts it (schema is forward-compatible).
-        // The rejection happens in the CLI add command (Task 8).
-        const d = {
+    it("accepts a descriptor with claudeSessionId set", () => {
+        const parsed = DescriptorSchema.parse({
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "headless", platform: "ios", dependsOn: [], createdAt: "x", status: "queued",
-        };
-        expect(() => DescriptorSchema.parse(d)).not.toThrow();
+            platform: "ios", dependsOn: [],
+            createdAt: "2026-05-10T00:00:00Z", status: "running",
+            claudeSessionId: "6999810d-ed0e-43a0-879f-d4b4ff46953b",
+        });
+        expect(parsed.claudeSessionId).toBe("6999810d-ed0e-43a0-879f-d4b4ff46953b");
+    });
+
+    it("accepts a descriptor without claudeSessionId (optional field)", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            platform: "ios", dependsOn: [],
+            createdAt: "2026-05-10T00:00:00Z", status: "queued",
+        });
+        expect(parsed.claudeSessionId).toBeUndefined();
+    });
+
+    it("rejects a descriptor that still carries the removed mode field", () => {
+        expect(() => DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            mode: "tmux",
+            platform: "ios", dependsOn: [],
+            createdAt: "2026-05-10T00:00:00Z", status: "queued",
+        })).toThrow();
     });
 });
 
@@ -57,7 +73,7 @@ describe("read/writeDescriptor", () => {
     it("round-trips a descriptor through disk", () => {
         const d = {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux" as const, platform: "ios" as const, dependsOn: [],
+            platform: "ios" as const, dependsOn: [],
             createdAt: "2026-05-09T14:30:22Z", status: "queued" as const,
         };
         const path = join(dir, "x.json");
@@ -69,7 +85,7 @@ describe("read/writeDescriptor", () => {
     it("writeDescriptor writes valid JSON with 2-space indentation", () => {
         const d = {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux" as const, platform: "ios" as const, dependsOn: [],
+            platform: "ios" as const, dependsOn: [],
             createdAt: "x", status: "queued" as const,
         };
         const path = join(dir, "x.json");

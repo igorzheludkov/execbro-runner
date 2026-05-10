@@ -38,11 +38,11 @@ describe("listDescriptors", () => {
         dir = mkdtempSync(join(tmpdir(), "execbro-test-"));
         writeFileSync(join(dir, "a.json"), JSON.stringify({
             id: "a", promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux", platform: "ios", dependsOn: [], createdAt: "2026-05-09T01:00:00Z", status: "queued",
+            platform: "ios", dependsOn: [], createdAt: "2026-05-09T01:00:00Z", status: "queued",
         }));
         writeFileSync(join(dir, "b.json"), JSON.stringify({
             id: "b", promptFile: "/p", repo: "/r", baseBranch: "main",
-            mode: "tmux", platform: "ios", dependsOn: [], createdAt: "2026-05-09T02:00:00Z", status: "queued",
+            platform: "ios", dependsOn: [], createdAt: "2026-05-09T02:00:00Z", status: "queued",
         }));
         writeFileSync(join(dir, "ignored.txt"), "not json");
     });

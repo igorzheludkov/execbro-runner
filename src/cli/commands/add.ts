@@ -11,7 +11,6 @@ import {
 export interface AddOptions {
     file: string;
     repo?: string;
-    mode?: "tmux" | "headless";
     platform?: "ios" | "android" | "both";
     allowDirty?: boolean;
     force?: boolean;
@@ -59,9 +58,6 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const promptFile = resolve(opts.file);
     if (!existsSync(promptFile)) throw new Error(`Prompt file not found: ${promptFile}`);
 
-    if (opts.mode === "headless") {
-        throw new Error("--mode=headless is a Phase 2 feature; only tmux mode is supported in Phase 1");
-    }
     if (opts.platform && opts.platform !== "ios") {
         throw new Error(`--platform=${opts.platform} is a Phase 2 feature; only ios is supported in Phase 1`);
     }
@@ -93,7 +89,7 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const id = generateTaskId(promptFile);
     const descriptor: TaskDescriptor = {
         id, promptFile, repo, baseBranch,
-        mode: "tmux", platform: "ios", dependsOn: [],
+        platform: "ios", dependsOn: [],
         createdAt: new Date().toISOString(),
         status: "queued",
         ...(opts.forceRebuild ? { forceRebuild: true } : {}),
