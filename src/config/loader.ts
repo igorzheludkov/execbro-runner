@@ -22,6 +22,11 @@ export function loadConfigFromPath(path: string): Config {
     if (!result.success) {
         throw new Error(`Config validation failed: ${result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
     }
+    const hasLegacyMetroPort = result.data.slots.some(s => s.metroPort !== undefined);
+    if (hasLegacyMetroPort) {
+        const range = result.data.metroPortRange;
+        console.warn(`config: slot.metroPort is deprecated; ports are now dynamically allocated from ${range.from}-${range.to}`);
+    }
     return result.data;
 }
 
