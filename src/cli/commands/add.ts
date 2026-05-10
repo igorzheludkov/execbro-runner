@@ -6,12 +6,13 @@ import {
     generateTaskId,
     writeDescriptor,
     type TaskDescriptor,
+    type DeviceDecl,
 } from "../../queue/descriptor.js";
 
 export interface AddOptions {
     file: string;
     repo?: string;
-    platform?: "ios" | "android" | "both";
+    devices?: string;
     force?: boolean;
     forceRebuild?: boolean;
 }
@@ -48,20 +49,23 @@ function findActiveTasksForPrompt(promptFile: string): { id: string; bucket: str
     return matches;
 }
 
+function parseDevices(raw: string | undefined): DeviceDecl[] {
+    const list = (raw ?? "ios").split(",").map(s => s.trim()).filter(Boolean);
+    if (list.length === 0) throw new Error(`--devices must list at least one platform`);
+    return list.map(token => {
+        if (token !== "ios" && token !== "android") {
+            throw new Error(`--devices entry "${token}" is not "ios" or "android"`);
+        }
+        return { platform: token };
+    });
+}
+
 export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const promptFile = resolve(opts.file);
     if (!existsSync(promptFile)) throw new Error(`Prompt file not found: ${promptFile}`);
 
-    if (opts.platform && opts.platform !== "ios") {
-        throw new Error(`--platform=${opts.platform} is a Phase 2 feature; only ios is supported in Phase 1`);
-    }
-
+    const devices = parseDevices(opts.devices);
     const repo = opts.repo ? resolve(opts.repo) : findGitRoot(dirname(promptFile));
-
-    // The worktree is branched from HEAD of the source repo's current branch.
-    // Uncommitted edits in the source are intentionally NOT included — that's
-    // the workflow: drafting a plan in the source repo naturally leaves it
-    // dirty, and we want the agent to operate on the last committed state.
 
     if (!opts.force) {
         const dups = findActiveTasksForPrompt(promptFile);
@@ -77,7 +81,7 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const id = generateTaskId(promptFile);
     const descriptor: TaskDescriptor = {
         id, promptFile, repo, baseBranch,
-        platform: "ios", dependsOn: [],
+        devices, dependsOn: [],
         createdAt: new Date().toISOString(),
         status: "queued",
         ...(opts.forceRebuild ? { forceRebuild: true } : {}),

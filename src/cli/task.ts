@@ -13,21 +13,22 @@ program
     .command("add <file>")
     .description("Enqueue a task from a markdown file")
     .option("--repo <path>", "Repo root (default: auto-detect from file)")
-    .option("--platform <platform>", "ios | android | both (Phase 1: ios only)")
+    .option("--devices <list>", "Comma-separated platforms: ios | android | ios,android | ios,ios | ... (default: ios)")
     .option("--force", "Enqueue even if a task with the same prompt file is already active")
     .option("--force-rebuild", "Force a full app rebuild even when the native fingerprint hasn't changed")
-    .action(async (file: string, opts: { repo?: string; platform?: string; force?: boolean; forceRebuild?: boolean }) => {
+    .action(async (file: string, opts: { repo?: string; devices?: string; force?: boolean; forceRebuild?: boolean }) => {
         try {
             const desc = await runAdd({
                 file,
                 repo: opts.repo,
-                platform: opts.platform as "ios" | "android" | "both" | undefined,
+                devices: opts.devices,
                 force: opts.force,
                 forceRebuild: opts.forceRebuild,
             });
             console.log(`Enqueued ${desc.id}`);
             console.log(`  repo: ${desc.repo}`);
             console.log(`  base: ${desc.baseBranch}`);
+            console.log(`  devices: ${desc.devices.map(d => d.platform).join(",")}`);
         } catch (e) {
             console.error(`Error: ${(e as Error).message}`);
             process.exit(1);
