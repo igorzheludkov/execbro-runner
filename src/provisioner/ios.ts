@@ -30,22 +30,21 @@ export function uninstallApp(udid: string, bundleId: string): void {
 
 /**
  * Launch the app on the sim. Idempotent — if the app is already running,
- * `simctl launch` foregrounds it. Used both after a fresh install (defense
- * in depth, since run-ios already launches) and after the skip-rebuild
+ * `simctl launch` terminates it first then relaunches, so we always end
+ * up with a fresh process. Used both after a fresh install (defense in
+ * depth, since run-ios already launches) and after the skip-rebuild
  * branch where nothing else would launch the app.
  *
- * `metroPort` is forwarded to the app via SIMCTL_CHILD_RCT_METRO_PORT.
- * React Native's RCTBundleURLProvider reads this at runtime so the app
- * connects to OUR Metro instance regardless of the port baked in at
- * build time. We also terminate any running instance first so the env
- * change takes effect (otherwise simctl launch silently no-ops).
+ * NOTE on metroPort: in Phase 1 the worker uses port 8081 (RN's default)
+ * because RCT_METRO_PORT is read at *build* time and stamped into the
+ * binary's bundler URL — runtime env-var overrides are unreliable across
+ * RN versions. Phase 2 (multi-slot parallelism) will need either a port
+ * fingerprint that triggers rebuilds when the slot's port changes, or a
+ * dev-menu poke to set "Bundle location" at launch.
  */
-export function launchApp(udid: string, bundleId: string, metroPort: number): void {
+export function launchApp(udid: string, bundleId: string): void {
     spawnSync("xcrun", ["simctl", "terminate", udid, bundleId], { encoding: "utf8" });
-    const r = spawnSync("xcrun", ["simctl", "launch", udid, bundleId], {
-        encoding: "utf8",
-        env: { ...process.env, SIMCTL_CHILD_RCT_METRO_PORT: String(metroPort) },
-    });
+    const r = spawnSync("xcrun", ["simctl", "launch", udid, bundleId], { encoding: "utf8" });
     if (r.status !== 0) {
         throw new Error(`simctl launch ${bundleId} failed: ${r.stderr.trim() || r.stdout.trim()}`);
     }

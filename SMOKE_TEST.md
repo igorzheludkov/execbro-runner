@@ -53,11 +53,13 @@ mkdir -p ~/.execbro
 cat > ~/.execbro/config.json <<EOF
 {
     "slots": [
-        { "id": 1, "platform": "ios", "deviceId": "<paste-udid-here>", "metroPort": 8082 }
+        { "id": 1, "platform": "ios", "deviceId": "<paste-udid-here>", "metroPort": 8081 }
     ]
 }
 EOF
 ```
+
+> **Why 8081?** RN's Metro port is baked into the iOS binary at build time, not read from runtime env, so the app expects whatever port was set during build. 8081 is RN's default — easy match. Phase 2 (parallel slots) will revisit this with port-aware rebuilds. If you have a manual Metro running on 8081, kill it first (`lsof -ti :8081 | xargs kill`).
 
 ## Step 3 — Write a tiny task
 
