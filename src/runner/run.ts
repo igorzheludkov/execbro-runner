@@ -65,8 +65,8 @@ export async function runTask(
         writeDescriptor(join(PATHS.queue.running, `${descriptor.id}.json`), descriptor);
         log(`metro ready on :${assignedMetroPort}`);
 
-        const fingerprint = nativeFingerprint(wt, assignedMetroPort);
-        const cachedFp = getCachedFingerprint(slot.deviceId, bundleId, assignedMetroPort);
+        const fingerprint = nativeFingerprint(wt);
+        const cachedFp = getCachedFingerprint(slot.deviceId, bundleId);
         const installed = isAppInstalledIos(slot.deviceId, bundleId);
         const forceRebuild = descriptor.forceRebuild ?? false;
         const canSkipBuild = !forceRebuild && installed && cachedFp === fingerprint;
@@ -87,7 +87,7 @@ export async function runTask(
             log("provisioning: build & install app");
             await withRetries(async () => buildAndInstall(wt, slot.deviceId, assignedMetroPort, bundleId, config.readinessTimeouts.appInstallSec),
                 { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });
-            setCachedFingerprint(slot.deviceId, bundleId, assignedMetroPort, fingerprint);
+            setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
         }
 
         // Always launch — simctl launch is idempotent and brings the app to

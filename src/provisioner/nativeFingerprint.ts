@@ -44,19 +44,16 @@ function hashFile(path: string): string {
 /**
  * Compute a stable fingerprint of the worktree's native side. Identical
  * fingerprints across two worktrees mean a rebuild is not necessary —
- * Metro will pick up any JS-only differences via reload_app.
- *
- * The Metro port is part of the fingerprint because iOS bakes RCT_METRO_PORT
- * into the binary's bundler URL at build time, so a binary built for port
- * 8090 cannot serve a Metro running on 8091 without rebuilding.
+ * Metro will pick up any JS-only differences via reload_app, and the
+ * Metro port is set per-launch via NSUserDefaults (see provisioner/ios.ts:
+ * setBundlerLocation), so the same binary serves any port.
  *
  * Inputs:
  *   - all files under ios/ and android/, excluding build artifacts
  *   - package.json
  *   - any lockfile present at the repo root or ios/Podfile.lock
- *   - the assigned Metro port
  */
-export function nativeFingerprint(worktreePath: string, metroPort: number): string {
+export function nativeFingerprint(worktreePath: string): string {
     const h = createHash("sha256");
     const parts: string[] = [];
 
@@ -76,8 +73,6 @@ export function nativeFingerprint(worktreePath: string, metroPort: number): stri
         const path = join(worktreePath, lock);
         if (existsSync(path)) parts.push(`${lock}\0${hashFile(path)}`);
     }
-
-    parts.push(`metroPort\0${metroPort}`);
 
     parts.sort();
     h.update(parts.join("\n"));
