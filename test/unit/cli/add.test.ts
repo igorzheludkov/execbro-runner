@@ -45,21 +45,15 @@ describe("runAdd", () => {
             .rejects.toThrow(/not found/i);
     });
 
-    it("blocks when the repo has uncommitted changes", async () => {
+    it("succeeds when the repo has uncommitted changes (worktree branches from HEAD; WIP is intentionally not carried over)", async () => {
         writeFileSync(join(repoDir, "README.md"), "modified");
-        await expect(runAdd({ file: promptPath }))
-            .rejects.toThrow(/uncommitted changes/i);
+        const desc = await runAdd({ file: promptPath });
+        expect(desc.status).toBe("queued");
     });
 
-    it("blocks when an untracked file exists in the repo", async () => {
+    it("succeeds when an untracked file exists in the repo", async () => {
         writeFileSync(join(repoDir, "untracked.txt"), "x");
-        await expect(runAdd({ file: promptPath }))
-            .rejects.toThrow(/uncommitted changes/i);
-    });
-
-    it("--allow-dirty bypasses the uncommitted-changes check", async () => {
-        writeFileSync(join(repoDir, "README.md"), "modified");
-        const desc = await runAdd({ file: promptPath, allowDirty: true });
+        const desc = await runAdd({ file: promptPath });
         expect(desc.status).toBe("queued");
     });
 

@@ -12,7 +12,6 @@ export interface AddOptions {
     file: string;
     repo?: string;
     platform?: "ios" | "android" | "both";
-    allowDirty?: boolean;
     force?: boolean;
     forceRebuild?: boolean;
 }
@@ -30,11 +29,6 @@ function findGitRoot(start: string): string {
 
 function getCurrentBranch(repo: string): string {
     return execSync("git symbolic-ref --short HEAD", { cwd: repo }).toString().trim();
-}
-
-function getDirtyFiles(repo: string): string[] {
-    const out = execSync("git status --porcelain", { cwd: repo, encoding: "utf8" });
-    return out.split("\n").filter(Boolean).map(line => line.slice(3));
 }
 
 function findActiveTasksForPrompt(promptFile: string): { id: string; bucket: string }[] {
@@ -64,16 +58,10 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
 
     const repo = opts.repo ? resolve(opts.repo) : findGitRoot(dirname(promptFile));
 
-    if (!opts.allowDirty) {
-        const dirty = getDirtyFiles(repo);
-        if (dirty.length > 0) {
-            const list = dirty.slice(0, 10).map(f => `  ${f}`).join("\n");
-            const more = dirty.length > 10 ? `\n  ...and ${dirty.length - 10} more` : "";
-            throw new Error(
-                `Repo has uncommitted changes — the worktree would be branched from HEAD and your edits would be invisible to the agent:\n${list}${more}\n\nCommit (or stash) the changes first, or pass --allow-dirty to proceed anyway.`,
-            );
-        }
-    }
+    // The worktree is branched from HEAD of the source repo's current branch.
+    // Uncommitted edits in the source are intentionally NOT included — that's
+    // the workflow: drafting a plan in the source repo naturally leaves it
+    // dirty, and we want the agent to operate on the last committed state.
 
     if (!opts.force) {
         const dups = findActiveTasksForPrompt(promptFile);

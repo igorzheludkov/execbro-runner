@@ -14,16 +14,14 @@ program
     .description("Enqueue a task from a markdown file")
     .option("--repo <path>", "Repo root (default: auto-detect from file)")
     .option("--platform <platform>", "ios | android | both (Phase 1: ios only)")
-    .option("--allow-dirty", "Skip the uncommitted-changes check on the target repo")
     .option("--force", "Enqueue even if a task with the same prompt file is already active")
     .option("--force-rebuild", "Force a full app rebuild even when the native fingerprint hasn't changed")
-    .action(async (file: string, opts: { repo?: string; platform?: string; allowDirty?: boolean; force?: boolean; forceRebuild?: boolean }) => {
+    .action(async (file: string, opts: { repo?: string; platform?: string; force?: boolean; forceRebuild?: boolean }) => {
         try {
             const desc = await runAdd({
                 file,
                 repo: opts.repo,
                 platform: opts.platform as "ios" | "android" | "both" | undefined,
-                allowDirty: opts.allowDirty,
                 force: opts.force,
                 forceRebuild: opts.forceRebuild,
             });
