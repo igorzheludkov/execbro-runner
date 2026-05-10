@@ -1,11 +1,10 @@
 import { ConfigSchema } from "../../../src/config/schema.js";
 
 describe("ConfigSchema", () => {
-    it("accepts a valid Phase 1 iOS-only config", () => {
+    it("accepts a valid Phase 2 iOS-only config (no slot.metroPort)", () => {
         const valid = {
-            slots: [
-                { id: 1, platform: "ios", deviceId: "ABC-123-UDID", metroPort: 8082 },
-            ],
+            slots: [{ id: 1, platform: "ios", deviceId: "ABC-123-UDID" }],
+            metroPortRange: { from: 8090, to: 8099 },
             shutdownDeviceAfterTask: false,
             stuckTimeoutMinutes: 30,
             retryProvisioner: 2,
@@ -19,19 +18,43 @@ describe("ConfigSchema", () => {
         expect(() => ConfigSchema.parse({ slots: [] })).toThrow();
     });
 
-    it("rejects a slot with platform other than ios in Phase 1", () => {
+    it("rejects a slot with platform other than ios/android", () => {
         const invalid = {
-            slots: [{ id: 1, platform: "windows", deviceId: "x", metroPort: 8082 }],
+            slots: [{ id: 1, platform: "windows", deviceId: "x" }],
         };
         expect(() => ConfigSchema.parse(invalid)).toThrow();
     });
 
-    it("applies defaults when optional fields are omitted", () => {
+    it("applies defaults when optional fields are omitted (incl. metroPortRange)", () => {
         const minimal = {
-            slots: [{ id: 1, platform: "ios", deviceId: "X", metroPort: 8082 }],
+            slots: [{ id: 1, platform: "ios", deviceId: "X" }],
         };
         const parsed = ConfigSchema.parse(minimal);
         expect(parsed.retryProvisioner).toBe(2);
         expect(parsed.readinessTimeouts.deviceBootSec).toBe(120);
+        expect(parsed.metroPortRange).toEqual({ from: 8090, to: 8099 });
+    });
+
+    it("accepts a legacy slot with metroPort (kept for back-compat; ignored at runtime)", () => {
+        const legacy = {
+            slots: [{ id: 1, platform: "ios", deviceId: "X", metroPort: 8082 }],
+        };
+        expect(() => ConfigSchema.parse(legacy)).not.toThrow();
+    });
+
+    it("rejects an inverted metroPortRange (from > to)", () => {
+        const bad = {
+            slots: [{ id: 1, platform: "ios", deviceId: "X" }],
+            metroPortRange: { from: 8099, to: 8090 },
+        };
+        expect(() => ConfigSchema.parse(bad)).toThrow();
+    });
+
+    it("rejects metroPortRange ports outside 1024..65535", () => {
+        const bad = {
+            slots: [{ id: 1, platform: "ios", deviceId: "X" }],
+            metroPortRange: { from: 80, to: 90 },
+        };
+        expect(() => ConfigSchema.parse(bad)).toThrow();
     });
 });
