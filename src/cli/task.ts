@@ -5,6 +5,7 @@ import { runList } from "./commands/list.js";
 import { runShow } from "./commands/show.js";
 import { runDevices } from "./commands/devices.js";
 import { runClean } from "./commands/clean.js";
+import { runInit } from "./commands/init.js";
 
 const program = new Command();
 program.name("execbro-task").description("Enqueue and inspect ExecBro autonomous tasks");
@@ -38,6 +39,19 @@ program
 program.command("list").description("List all tasks by status").action(runList);
 program.command("show <id>").description("Show a task descriptor and log path").action(runShow);
 program.command("devices").description("List available iOS sims and Android AVDs").action(runDevices);
+
+program
+    .command("init")
+    .description("Auto-detect simulators / emulators and write ~/.execbro/config.json")
+    .option("--yes", "Skip the confirmation prompt (non-interactive)")
+    .action(async (opts: { yes?: boolean }) => {
+        try {
+            await runInit({ yes: opts.yes });
+        } catch (e) {
+            console.error(`Error: ${(e as Error).message}`);
+            process.exit(1);
+        }
+    });
 
 program
     .command("clean [id]")

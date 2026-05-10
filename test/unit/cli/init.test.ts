@@ -84,3 +84,88 @@ describe("summarize", () => {
         expect(summarize([])).toEqual({ total: 0, ios: 0, android: 0 });
     });
 });
+
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { runInit } from "../../../src/cli/commands/init.js";
+import * as discover from "../../../src/cli/devices/discover.js";
+
+describe("runInit", () => {
+    let home: string;
+    let originalEnv: string | undefined;
+
+    beforeEach(() => {
+        home = mkdtempSync(join(tmpdir(), "execbro-init-"));
+        originalEnv = process.env.EXECBRO_HOME;
+        process.env.EXECBRO_HOME = home;
+    });
+
+    afterEach(() => {
+        if (originalEnv === undefined) delete process.env.EXECBRO_HOME;
+        else process.env.EXECBRO_HOME = originalEnv;
+        rmSync(home, { recursive: true, force: true });
+        jest.restoreAllMocks();
+    });
+
+    it("writes a fresh config when --yes is passed and no existing config is present", async () => {
+        jest.spyOn(discover, "listIosDevices").mockReturnValue([
+            { platform: "ios", name: "iPhone 14", identifier: "UDID-1", runtime: "iOS 17", booted: false },
+        ]);
+        jest.spyOn(discover, "listAndroidDevices").mockReturnValue([
+            { platform: "android", name: "Pixel_9", identifier: "Pixel_9", runtime: "AVD", booted: false },
+        ]);
+
+        await runInit({ yes: true });
+
+        const path = join(home, "config.json");
+        expect(existsSync(path)).toBe(true);
+        const written = JSON.parse(readFileSync(path, "utf8"));
+        expect(written.slots).toEqual([
+            { id: 1, platform: "ios", deviceId: "UDID-1" },
+            { id: 2, platform: "android", deviceId: "Pixel_9", androidConsolePort: 5554 },
+        ]);
+    });
+
+    it("preserves existing top-level fields when merging", async () => {
+        writeFileSync(
+            join(home, "config.json"),
+            JSON.stringify({
+                pushOnDone: true,
+                notifications: { macos: false, slackWebhook: null },
+                slots: [{ id: 99, platform: "ios", deviceId: "STALE" }],
+            }, null, 4),
+        );
+        jest.spyOn(discover, "listIosDevices").mockReturnValue([
+            { platform: "ios", name: "iPhone 14", identifier: "UDID-1", runtime: "iOS 17", booted: false },
+        ]);
+        jest.spyOn(discover, "listAndroidDevices").mockReturnValue([]);
+
+        await runInit({ yes: true });
+
+        const written = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+        expect(written.pushOnDone).toBe(true);
+        expect(written.notifications).toEqual({ macos: false, slackWebhook: null });
+        expect(written.slots).toEqual([{ id: 1, platform: "ios", deviceId: "UDID-1" }]);
+    });
+
+    it("throws when no devices are detected", async () => {
+        jest.spyOn(discover, "listIosDevices").mockReturnValue([]);
+        jest.spyOn(discover, "listAndroidDevices").mockReturnValue([]);
+        await expect(runInit({ yes: true })).rejects.toThrow(/no devices detected/i);
+    });
+
+    it("backs up an unparseable existing config and proceeds with a fresh merge base", async () => {
+        writeFileSync(join(home, "config.json"), "{ this is not json");
+        jest.spyOn(discover, "listIosDevices").mockReturnValue([
+            { platform: "ios", name: "iPhone", identifier: "U", runtime: "iOS 17", booted: false },
+        ]);
+        jest.spyOn(discover, "listAndroidDevices").mockReturnValue([]);
+
+        await runInit({ yes: true });
+
+        expect(existsSync(join(home, "config.json.bak"))).toBe(true);
+        const written = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+        expect(written.slots).toHaveLength(1);
+    });
+});
