@@ -13,7 +13,7 @@ export const ConfigSchema = z.object({
     shutdownDeviceAfterTask: z.boolean().default(false),
     stuckTimeoutMinutes: z.number().int().positive().default(30),
     retryProvisioner: z.number().int().min(0).default(2),
-    pushOnDone: z.boolean().default(true),
+    pushOnDone: z.boolean().default(false),
     readinessTimeouts: z
         .object({
             deviceBootSec: z.number().int().positive().default(120),
