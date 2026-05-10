@@ -29,10 +29,32 @@ export function uninstallApp(udid: string, bundleId: string): void {
 }
 
 /**
+ * Tell the app's RCTBundleURLProvider where Metro is. RN sim debug builds
+ * default to localhost:8081 unless NSUserDefaults `RCT_jsLocation` overrides
+ * it (this is the same key the dev menu's "Configure Bundler" sets). Build-
+ * time `RCT_METRO_PORT` does NOT change this default for sim builds, so
+ * pointing the app at a non-default Metro port has to happen at runtime via
+ * the app's preferences domain.
+ *
+ * Writes are scoped to `<bundleId>`, persisted in the simulator's
+ * preferences DB, and picked up on the next launch.
+ */
+export function setBundlerLocation(udid: string, bundleId: string, metroPort: number): void {
+    const r = spawnSync(
+        "xcrun",
+        ["simctl", "spawn", udid, "defaults", "write", bundleId, "RCT_jsLocation", `localhost:${metroPort}`],
+        { encoding: "utf8" },
+    );
+    if (r.status !== 0) {
+        throw new Error(`failed to write RCT_jsLocation for ${bundleId}: ${r.stderr.trim() || r.stdout.trim()}`);
+    }
+}
+
+/**
  * Launch the app on the sim. Idempotent — if the app is already running,
  * `simctl launch` terminates it first then relaunches, so we always end
- * up with a fresh process. The binary is bound at build time to whatever
- * port the native fingerprint covered (see nativeFingerprint.ts).
+ * up with a fresh process. Caller is responsible for `setBundlerLocation`
+ * before launching when running on a non-default Metro port.
  */
 export function launchApp(udid: string, bundleId: string): void {
     spawnSync("xcrun", ["simctl", "terminate", udid, bundleId], { encoding: "utf8" });

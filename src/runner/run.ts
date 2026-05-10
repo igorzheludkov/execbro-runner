@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { renderPrompt } from "./prompt.js";
 import { runHeadlessAgent } from "./headless.js";
 import { withRetries, createWorktree, installDependencies } from "../provisioner/shared.js";
-import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods, launchApp } from "../provisioner/ios.js";
+import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods, launchApp, setBundlerLocation } from "../provisioner/ios.js";
 import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
 import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
 import { commitIfDirty, pushBranch, getRemoteUrl, buildPrUrl } from "../git/push.js";
@@ -92,9 +92,11 @@ export async function runTask(
 
         // Always launch — simctl launch is idempotent and brings the app to
         // the foreground whether we just installed it or skipped the rebuild.
-        // The app expects Metro on whatever port was baked in at build time
-        // (8081 by default — see the launchApp doc comment for the Phase 2
-        // implications).
+        // RN sim apps default to localhost:8081 unless NSUserDefaults
+        // RCT_jsLocation overrides; setBundlerLocation writes that override
+        // before launch so the app probes our assigned Metro port.
+        log(`pointing app at metro on :${assignedMetroPort}`);
+        setBundlerLocation(slot.deviceId, bundleId, assignedMetroPort);
         log(`launching app ${bundleId}`);
         launchApp(slot.deviceId, bundleId);
 
