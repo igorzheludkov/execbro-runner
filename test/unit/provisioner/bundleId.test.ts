@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverIosBundleId } from "../../../src/provisioner/ios.js";
+import { discoverAndroidPackageName } from "../../../src/provisioner/android.js";
 
 function makePbxproj(bundleIds: string[]): string {
     const targets = bundleIds.map((id, i) => `
@@ -92,5 +93,43 @@ describe("discoverIosBundleId", () => {
         );
         writeFileSync(join(dir, "package.json"), JSON.stringify({}));
         expect(() => discoverIosBundleId(dir)).toThrow(/iOS bundle id/i);
+    });
+});
+
+describe("discoverAndroidPackageName", () => {
+    let dir: string;
+    beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), "execbro-androidpkg-"));
+        mkdirSync(join(dir, "android", "app"), { recursive: true });
+    });
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+    it("returns the applicationId from a double-quoted gradle declaration", () => {
+        writeFileSync(
+            join(dir, "android", "app", "build.gradle"),
+            `android {\n    defaultConfig {\n        applicationId "com.example.myapp"\n    }\n}\n`,
+        );
+        expect(discoverAndroidPackageName(dir)).toBe("com.example.myapp");
+    });
+
+    it("returns the applicationId from a single-quoted gradle declaration", () => {
+        writeFileSync(
+            join(dir, "android", "app", "build.gradle"),
+            `android { defaultConfig { applicationId 'com.example.myapp' } }`,
+        );
+        expect(discoverAndroidPackageName(dir)).toBe("com.example.myapp");
+    });
+
+    it("falls back to package.json execbro.androidPackageName when gradle missing", () => {
+        writeFileSync(
+            join(dir, "package.json"),
+            JSON.stringify({ execbro: { androidPackageName: "com.example.fallback" } }),
+        );
+        expect(discoverAndroidPackageName(dir)).toBe("com.example.fallback");
+    });
+
+    it("throws when neither gradle nor package.json resolves the id", () => {
+        writeFileSync(join(dir, "package.json"), JSON.stringify({}));
+        expect(() => discoverAndroidPackageName(dir)).toThrow(/Android package name/i);
     });
 });
