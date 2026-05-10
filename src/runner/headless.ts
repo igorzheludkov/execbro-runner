@@ -23,6 +23,7 @@ export async function runHeadlessAgent(opts: RunHeadlessAgentOptions): Promise<R
         "-p", opts.prompt,
         "--dangerously-skip-permissions",
         "--output-format", "stream-json",
+        "--verbose", // required by Claude Code 2.1.138 whenever -p is combined with stream-json
         "--append-system-prompt", opts.systemPrompt,
     ];
     const spawnFn = opts.spawn ?? nodeSpawn;
@@ -46,6 +47,14 @@ export async function runHeadlessAgent(opts: RunHeadlessAgentOptions): Promise<R
             opts.onSessionId?.(id);
         }
     });
+
+    // Capture stderr so failures surface in the log instead of going to /dev/null.
+    if (child.stderr) {
+        const errLines = createInterface({ input: child.stderr });
+        errLines.on("line", (line: string) => {
+            logStream.write(`[stderr] ${line}\n`);
+        });
+    }
 
     const exitCodePromise = new Promise<number>(resolve => {
         child.on("exit", (code: number | null) => resolve(code ?? -1));
