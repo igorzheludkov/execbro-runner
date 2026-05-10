@@ -1,8 +1,68 @@
 import { spawnSync, execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pollUntil } from "./readiness.js";
 import * as tmux from "../runner/tmux.js";
+
+const TEST_OR_EXT_SUFFIXES = [
+    ".tests", ".testing", "tests",
+    ".widget", ".watchkitapp", ".notificationservice",
+];
+
+function isMainTargetBundleId(bundleId: string): boolean {
+    const lower = bundleId.toLowerCase();
+    return !TEST_OR_EXT_SUFFIXES.some(suffix => lower.endsWith(suffix.toLowerCase()));
+}
+
+function findSingleXcodeProj(worktreePath: string): string | null {
+    const iosDir = join(worktreePath, "ios");
+    if (!existsSync(iosDir)) return null;
+    const candidates = readdirSync(iosDir).filter(name => name.endsWith(".xcodeproj"));
+    if (candidates.length !== 1) return null;
+    const pbx = join(iosDir, candidates[0], "project.pbxproj");
+    return existsSync(pbx) ? pbx : null;
+}
+
+function readExplicitIosBundleId(worktreePath: string): string | null {
+    const pkgPath = join(worktreePath, "package.json");
+    if (!existsSync(pkgPath)) return null;
+    try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+        const id = pkg?.execbro?.iosBundleId;
+        return typeof id === "string" && id.length > 0 ? id : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Discover the main app's iOS bundle identifier.
+ *
+ *   1. Glob ios/*.xcodeproj/project.pbxproj. If exactly one match, regex
+ *      every PRODUCT_BUNDLE_IDENTIFIER value, drop test/widget/extension
+ *      suffixes, and return the single remaining distinct value.
+ *   2. Fall back to package.json: execbro.iosBundleId.
+ *   3. Throw with a clear error if neither path resolves.
+ */
+export function discoverIosBundleId(worktreePath: string): string {
+    const pbxPath = findSingleXcodeProj(worktreePath);
+    let autodetectError = "no ios/*.xcodeproj found";
+    if (pbxPath) {
+        const text = readFileSync(pbxPath, "utf8");
+        const matches = [...text.matchAll(/PRODUCT_BUNDLE_IDENTIFIER\s*=\s*"?([^";\s]+)"?\s*;/g)];
+        const distinct = [...new Set(matches.map(m => m[1]))].filter(isMainTargetBundleId);
+        if (distinct.length === 1) return distinct[0];
+        autodetectError = distinct.length === 0
+            ? `no main-target PRODUCT_BUNDLE_IDENTIFIER found in ${pbxPath}`
+            : `multiple main-target candidates in ${pbxPath}: ${distinct.join(", ")}`;
+    }
+    const explicit = readExplicitIosBundleId(worktreePath);
+    if (explicit) return explicit;
+    throw new Error(
+        `Could not determine iOS bundle id. Autodetect: ${autodetectError}. ` +
+        `Set "execbro.iosBundleId" in package.json to override.`,
+    );
+}
 
 export interface IosProvisionInput {
     udid: string;
