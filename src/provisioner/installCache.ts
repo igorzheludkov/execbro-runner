@@ -46,3 +46,26 @@ export function isAppInstalledIos(udid: string, bundleId: string): boolean {
     if (r.status !== 0) return false;
     return r.stdout.includes(bundleId);
 }
+
+type SpawnSyncFn = typeof spawnSync;
+
+/**
+ * Returns true iff `adb -s <id> shell pm list packages` lists the exact
+ * package name. Lines have the shape `package:<id>`, and substrings of
+ * other package names must NOT match — `com.example.myapp` is not
+ * present in a system that only has `com.example.myapp.test`.
+ *
+ * `spawnFnInjected` is for tests; production passes nothing and the real
+ * spawnSync is used.
+ */
+export function isAppInstalledAndroid(
+    deviceId: string,
+    packageName: string,
+    spawnFnInjected?: SpawnSyncFn,
+): boolean {
+    const spawnFn = spawnFnInjected ?? spawnSync;
+    const r = spawnFn("adb", ["-s", deviceId, "shell", "pm", "list", "packages"], { encoding: "utf8" });
+    if (r.status !== 0) return false;
+    const lines = String(r.stdout).split("\n").map(l => l.trim());
+    return lines.includes(`package:${packageName}`);
+}

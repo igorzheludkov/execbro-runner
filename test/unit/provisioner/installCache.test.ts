@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getCachedFingerprint, setCachedFingerprint } from "../../../src/provisioner/installCache.js";
+import { getCachedFingerprint, setCachedFingerprint, isAppInstalledAndroid } from "../../../src/provisioner/installCache.js";
 
 describe("install cache", () => {
     let dir: string;
@@ -49,5 +49,39 @@ describe("install cache", () => {
         // Subsequent task on the same code, different port, looks up the
         // same entry — the runner does not pass a port to these calls.
         expect(getCachedFingerprint("UDID-A", "com.x")).toBe("fp-1");
+    });
+});
+
+describe("isAppInstalledAndroid", () => {
+    it("returns true when pm list packages output contains the package", () => {
+        const fakeSpawn = jest.fn().mockReturnValue({
+            status: 0,
+            stdout: "package:com.android.systemui\npackage:com.example.myapp\npackage:com.android.chrome\n",
+            stderr: "",
+        });
+        expect(isAppInstalledAndroid("emulator-5554", "com.example.myapp", fakeSpawn as never)).toBe(true);
+    });
+
+    it("returns false when output does not contain the package", () => {
+        const fakeSpawn = jest.fn().mockReturnValue({
+            status: 0,
+            stdout: "package:com.android.systemui\npackage:com.android.chrome\n",
+            stderr: "",
+        });
+        expect(isAppInstalledAndroid("emulator-5554", "com.example.myapp", fakeSpawn as never)).toBe(false);
+    });
+
+    it("returns false when adb fails", () => {
+        const fakeSpawn = jest.fn().mockReturnValue({ status: 1, stdout: "", stderr: "no devices" });
+        expect(isAppInstalledAndroid("emulator-5554", "com.example.myapp", fakeSpawn as never)).toBe(false);
+    });
+
+    it("only matches whole package names (not substrings)", () => {
+        const fakeSpawn = jest.fn().mockReturnValue({
+            status: 0,
+            stdout: "package:com.example.myapp.test\npackage:com.example.myapp2\n",
+            stderr: "",
+        });
+        expect(isAppInstalledAndroid("emulator-5554", "com.example.myapp", fakeSpawn as never)).toBe(false);
     });
 });
