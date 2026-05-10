@@ -6,7 +6,7 @@ import { withRetries, createWorktree, installDependencies } from "../provisioner
 import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods, launchApp } from "../provisioner/ios.js";
 import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
 import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
-import { commitIfDirty, pushBranch, getRemoteUrl, buildBitbucketPrUrl } from "../bitbucket/push.js";
+import { commitIfDirty, pushBranch, getRemoteUrl, buildPrUrl } from "../git/push.js";
 import { notifyMacos } from "../notify/macos.js";
 import { writeDescriptor, type TaskDescriptor } from "../queue/descriptor.js";
 import type { Config, Slot } from "../config/schema.js";
@@ -135,23 +135,40 @@ export async function runTask(
             return { status: "failed", reason };
         }
 
-        // Push
-        log("committing and pushing");
+        // Commit (always) + push (optional)
+        log("committing");
         commitIfDirty(wt, `task: ${descriptor.id}`);
-        const remoteUrl = getRemoteUrl(wt);
-        pushBranch(wt, `task/${descriptor.id}`);
-        const prUrl = buildBitbucketPrUrl({ remoteUrl, sourceBranch: `task/${descriptor.id}`, destBranch: descriptor.baseBranch });
-        log(`PR URL: ${prUrl}`);
+        const branchName = `task/${descriptor.id}`;
+
+        let prUrl: string | null = null;
+        if (config.pushOnDone) {
+            log(`pushing ${branchName}`);
+            try {
+                pushBranch(wt, branchName);
+                const remoteUrl = getRemoteUrl(wt);
+                prUrl = buildPrUrl({ remoteUrl, sourceBranch: branchName, destBranch: descriptor.baseBranch });
+                if (prUrl) log(`PR URL: ${prUrl}`);
+                else log(`pushed (host not recognized — open a PR manually for branch ${branchName})`);
+            } catch (e) {
+                log(`push failed (commit kept locally): ${(e as Error).message}`);
+                log(`to push manually: cd ${wt} && git push -u origin ${branchName}`);
+            }
+        } else {
+            log(`pushOnDone=false — branch committed locally: ${branchName}`);
+            log(`to push manually: cd ${wt} && git push -u origin ${branchName}`);
+        }
 
         if (sessionId) {
             log(`resume any time: cd ${wt} && claude --resume ${sessionId}`);
         }
 
         if (config.notifications.macos) {
-            const body = sessionId
-                ? `PR: ${prUrl}\nResume: claude --resume ${sessionId}`
-                : `PR: ${prUrl}`;
-            notifyMacos(`ExecBro task done: ${descriptor.id}`, body);
+            const lines: string[] = [];
+            if (prUrl) lines.push(`PR: ${prUrl}`);
+            else if (config.pushOnDone) lines.push(`Branch: ${branchName} (open PR manually)`);
+            else lines.push(`Branch: ${branchName} (not pushed)`);
+            if (sessionId) lines.push(`Resume: claude --resume ${sessionId}`);
+            notifyMacos(`ExecBro task done: ${descriptor.id}`, lines.join("\n"));
         }
         return { status: "done" };
     } catch (e) {
