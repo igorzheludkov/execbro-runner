@@ -30,6 +30,7 @@ async function readBundleId(wtPath: string): Promise<string> {
 export async function runTask(
     descriptor: TaskDescriptor,
     slot: Slot,
+    assignedMetroPort: number,
     config: Config,
 ): Promise<RunOutcome> {
     const wt = worktreePath(descriptor.id);
@@ -56,12 +57,16 @@ export async function runTask(
         await withRetries(async () => bootIosSimulator(slot.deviceId, config.readinessTimeouts.deviceBootSec),
             { retries: config.retryProvisioner, backoffMs: 5000, label: "sim boot" });
 
-        log(`provisioning: start metro on :${slot.metroPort}`);
-        await withRetries(async () => startMetro(wt, slot.metroPort, config.readinessTimeouts.metroReadySec, metroSessionName),
+        log(`provisioning: start metro on :${assignedMetroPort}`);
+        await withRetries(async () => startMetro(wt, assignedMetroPort, config.readinessTimeouts.metroReadySec, metroSessionName),
             { retries: config.retryProvisioner, backoffMs: 5000, label: "metro" });
 
-        const fingerprint = nativeFingerprint(wt);
-        const cachedFp = getCachedFingerprint(slot.deviceId, bundleId);
+        descriptor.assignedMetroPort = assignedMetroPort;
+        writeDescriptor(join(PATHS.queue.running, `${descriptor.id}.json`), descriptor);
+        log(`metro ready on :${assignedMetroPort}`);
+
+        const fingerprint = nativeFingerprint(wt, assignedMetroPort);
+        const cachedFp = getCachedFingerprint(slot.deviceId, bundleId, assignedMetroPort);
         const installed = isAppInstalledIos(slot.deviceId, bundleId);
         const forceRebuild = descriptor.forceRebuild ?? false;
         const canSkipBuild = !forceRebuild && installed && cachedFp === fingerprint;
@@ -80,9 +85,9 @@ export async function runTask(
             await withRetries(async () => installIosPods(wt),
                 { retries: config.retryProvisioner, backoffMs: 5000, label: "pod install" });
             log("provisioning: build & install app");
-            await withRetries(async () => buildAndInstall(wt, slot.deviceId, slot.metroPort, bundleId, config.readinessTimeouts.appInstallSec),
+            await withRetries(async () => buildAndInstall(wt, slot.deviceId, assignedMetroPort, bundleId, config.readinessTimeouts.appInstallSec),
                 { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });
-            setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
+            setCachedFingerprint(slot.deviceId, bundleId, assignedMetroPort, fingerprint);
         }
 
         // Always launch — simctl launch is idempotent and brings the app to
@@ -101,7 +106,7 @@ export async function runTask(
                 worktreePath: wt,
                 platform: "ios",
                 deviceId: slot.deviceId,
-                metroPort: slot.metroPort,
+                metroPort: assignedMetroPort,
                 bundleId,
             },
         });
@@ -130,7 +135,7 @@ export async function runTask(
                 : `agent exited ${exitCode} before emitting a session id`;
             log(reason);
             if (config.notifications.macos) {
-                notifyMacos(`ExecBro task FAILED: ${descriptor.id}`, reason);
+                notifyMacos(`ExecBro task FAILED: ${descriptor.id}`, `on :${assignedMetroPort} — ${reason}`);
             }
             return { status: "failed", reason };
         }
@@ -163,7 +168,7 @@ export async function runTask(
         }
 
         if (config.notifications.macos) {
-            const lines: string[] = [];
+            const lines: string[] = [`Metro: :${assignedMetroPort}`];
             if (prUrl) lines.push(`PR: ${prUrl}`);
             else if (config.pushOnDone) lines.push(`Branch: ${branchName} (open PR manually)`);
             else lines.push(`Branch: ${branchName} (not pushed)`);
@@ -174,12 +179,12 @@ export async function runTask(
     } catch (e) {
         log(`task failed: ${(e as Error).message}`);
         if (config.notifications.macos) {
-            notifyMacos(`ExecBro task FAILED: ${descriptor.id}`, (e as Error).message);
+            notifyMacos(`ExecBro task FAILED: ${descriptor.id}`, `on :${assignedMetroPort} — ${(e as Error).message}`);
         }
         return { status: "failed", reason: (e as Error).message };
     } finally {
         // Headless runner spawns no extra side processes besides Metro,
         // which still runs in its own tmux session for the worker's lifetime.
-        stopMetro(metroSessionName, slot.metroPort);
+        stopMetro(metroSessionName, assignedMetroPort);
     }
 }
