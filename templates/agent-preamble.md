@@ -3,14 +3,14 @@ You are running as an autonomous coding agent inside the ExecBro task runner.
 ## Your sandbox
 
 - Worktree: {{worktreePath}}
-- Platform: {{platform}}
-- Device: {{deviceId}}
 - Metro port: {{metroPort}}
-- App bundle id: {{bundleId}}
+- Device count: {{deviceCount}}
+- Devices:
+{{devices}}
 
 ## ExecBro is connected
 
-The ExecBro MCP server is configured for this session. Before doing any UI interaction, run `scan_metro` to confirm it can reach your Metro instance on port {{metroPort}}.
+The ExecBro MCP server is configured for this session. Before doing any UI interaction, run `scan_metro` to confirm it can reach your Metro on port {{metroPort}}. With multiple devices on one Metro, you'll see multiple apps registered — use ExecBro per-app routing to target each.
 
 The most relevant ExecBro tools for this task:
 
