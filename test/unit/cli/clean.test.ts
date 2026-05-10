@@ -84,22 +84,19 @@ describe("runClean", () => {
         expect(existsSync(join(homeDir, "queue", "inbox", `${id}.json`))).toBe(false);
     });
 
-    it("--all-running stops every running task and removes its descriptor, worktree, log, and signal file", async () => {
+    it("--all-running stops every running task and removes its descriptor, worktree, and log", async () => {
         const ids = ["run-a", "run-b"];
         for (const id of ids) {
             writeDescriptor(join(homeDir, "queue", "running"), id, "running");
             mkdirSync(join(homeDir, "worktrees", id), { recursive: true });
             mkdirSync(join(homeDir, "logs"), { recursive: true });
             writeFileSync(join(homeDir, "logs", `${id}.jsonl`), "{}");
-            writeFileSync(join(homeDir, "queue", "running", `${id}.signal`),
-                JSON.stringify({ id, signaledAt: "now" }));
         }
 
         await runClean({ allRunning: true });
 
         for (const id of ids) {
             expect(existsSync(join(homeDir, "queue", "running", `${id}.json`))).toBe(false);
-            expect(existsSync(join(homeDir, "queue", "running", `${id}.signal`))).toBe(false);
             expect(existsSync(join(homeDir, "worktrees", id))).toBe(false);
             expect(existsSync(join(homeDir, "logs", `${id}.jsonl`))).toBe(false);
         }

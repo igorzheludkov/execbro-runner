@@ -9,6 +9,7 @@ export interface CleanOptions {
     id?: string;
     allFailed?: boolean;
     allDone?: boolean;
+    allRunning?: boolean;
     force?: boolean;
 }
 
@@ -88,15 +89,16 @@ function cleanOne(loc: QueueLocation): void {
 }
 
 export async function runClean(opts: CleanOptions): Promise<void> {
-    const flagCount = [opts.id, opts.allFailed, opts.allDone].filter(Boolean).length;
+    const flagCount = [opts.id, opts.allFailed, opts.allDone, opts.allRunning].filter(Boolean).length;
     if (flagCount === 0) {
-        throw new Error("Specify a task id, --all-failed, or --all-done");
+        throw new Error("Specify a task id, --all-failed, --all-done, or --all-running");
     }
     if (flagCount > 1) {
-        throw new Error("Specify only one of: <id>, --all-failed, --all-done");
+        throw new Error("Specify only one of: <id>, --all-failed, --all-done, --all-running");
     }
 
     let targets: QueueLocation[] = [];
+    let bypassActiveCheck = false;
     if (opts.id) {
         const loc = findTask(opts.id);
         if (!loc) throw new Error(`Task not found: ${opts.id}`);
@@ -105,9 +107,12 @@ export async function runClean(opts: CleanOptions): Promise<void> {
         targets = listTasksInBucket("failed");
     } else if (opts.allDone) {
         targets = listTasksInBucket("done");
+    } else if (opts.allRunning) {
+        targets = listTasksInBucket("running");
+        bypassActiveCheck = true; // explicit intent — no --force needed
     }
 
-    if (!opts.force) {
+    if (!opts.force && !bypassActiveCheck) {
         const active = targets.filter(t => t.bucket === "inbox" || t.bucket === "running");
         if (active.length > 0) {
             throw new Error(
@@ -124,4 +129,7 @@ export async function runClean(opts: CleanOptions): Promise<void> {
 
     for (const t of targets) cleanOne(t);
     console.log(`\nDone. Cleaned ${targets.length} task(s).`);
+    if (opts.allRunning) {
+        console.log("Note: if execbro-worker is currently running, restart it — its in-memory wait loop won't notice the cleanup.");
+    }
 }

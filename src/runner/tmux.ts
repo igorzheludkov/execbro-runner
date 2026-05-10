@@ -52,3 +52,22 @@ export function killSession(name: string): void {
 export function sessionName(taskId: string): string {
     return `execbro-${taskId}`;
 }
+
+/**
+ * Send a single Enter key to a session. Use this instead of
+ * `sendKeys(name, "", true)` when there's no preceding text — empty-string
+ * args are an error-prone tmux usage. Notably, after a bracketed paste,
+ * Claude Code's TUI sometimes drops the first Enter; combine this with
+ * the retry helper in submitPrompt.ts.
+ */
+export function pressEnter(name: string): void {
+    const r = tmux(["send-keys", "-t", name, "Enter"]);
+    if (r.code !== 0) throw new Error(`tmux send-keys Enter failed: ${r.stderr}`);
+}
+
+/** Capture the visible content of a pane as a string. */
+export function capturePane(name: string): string {
+    const r = tmux(["capture-pane", "-t", name, "-p"]);
+    if (r.code !== 0) throw new Error(`tmux capture-pane failed: ${r.stderr}`);
+    return r.stdout;
+}
