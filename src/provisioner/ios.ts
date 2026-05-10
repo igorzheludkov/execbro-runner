@@ -31,16 +31,8 @@ export function uninstallApp(udid: string, bundleId: string): void {
 /**
  * Launch the app on the sim. Idempotent — if the app is already running,
  * `simctl launch` terminates it first then relaunches, so we always end
- * up with a fresh process. Used both after a fresh install (defense in
- * depth, since run-ios already launches) and after the skip-rebuild
- * branch where nothing else would launch the app.
- *
- * NOTE on metroPort: in Phase 1 the worker uses port 8081 (RN's default)
- * because RCT_METRO_PORT is read at *build* time and stamped into the
- * binary's bundler URL — runtime env-var overrides are unreliable across
- * RN versions. Phase 2 (multi-slot parallelism) will need either a port
- * fingerprint that triggers rebuilds when the slot's port changes, or a
- * dev-menu poke to set "Bundle location" at launch.
+ * up with a fresh process. The binary is bound at build time to whatever
+ * port the native fingerprint covered (see nativeFingerprint.ts).
  */
 export function launchApp(udid: string, bundleId: string): void {
     spawnSync("xcrun", ["simctl", "terminate", udid, bundleId], { encoding: "utf8" });
