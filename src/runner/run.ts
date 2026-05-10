@@ -1,11 +1,31 @@
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { renderPrompt } from "./prompt.js";
+import { renderPrompt, type DeviceVar } from "./prompt.js";
 import { runHeadlessAgent } from "./headless.js";
 import { withRetries, createWorktree, installDependencies } from "../provisioner/shared.js";
-import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods, launchApp, setBundlerLocation } from "../provisioner/ios.js";
+import {
+    bootIosSimulator,
+    uninstallApp as uninstallIos,
+    startMetro, stopMetro,
+    buildAndInstall as buildIos,
+    installIosPods,
+    launchApp as launchIos,
+    setBundlerLocation as setIosBundlerLocation,
+    discoverIosBundleId,
+} from "../provisioner/ios.js";
+import {
+    bootAndroidEmulator,
+    uninstallApp as uninstallAndroid,
+    buildAndInstall as buildAndroid,
+    launchApp as launchAndroid,
+    setBundlerLocation as setAndroidBundlerLocation,
+    discoverAndroidPackageName,
+} from "../provisioner/android.js";
 import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
-import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
+import {
+    getCachedFingerprint, setCachedFingerprint,
+    isAppInstalledIos, isAppInstalledAndroid,
+} from "../provisioner/installCache.js";
 import { commitIfDirty, pushBranch, getRemoteUrl, buildPrUrl } from "../git/push.js";
 import { notifyMacos } from "../notify/macos.js";
 import { writeDescriptor, type TaskDescriptor } from "../queue/descriptor.js";
@@ -17,19 +37,91 @@ export interface RunOutcome {
     reason?: string;
 }
 
-async function readBundleId(wtPath: string): Promise<string> {
-    // Phase 1: read from package.json's "execbro": { "iosBundleId": "..." } field.
-    // Phase 2 will discover this from the Xcode project / Podfile automatically.
-    const pkgRaw = readFileSync(join(wtPath, "package.json"), "utf8");
-    const pkg = JSON.parse(pkgRaw);
-    const bundleId = pkg?.execbro?.iosBundleId;
-    if (!bundleId) throw new Error("package.json must contain execbro.iosBundleId for Phase 1");
-    return bundleId;
+interface ResolvedDevice {
+    slot: Slot;
+    bundleId: string;
+}
+
+function resolveDevices(slots: Slot[], wt: string): ResolvedDevice[] {
+    let iosBundleId: string | null = null;
+    let androidPackageName: string | null = null;
+    return slots.map(slot => {
+        if (slot.platform === "ios") {
+            if (!iosBundleId) iosBundleId = discoverIosBundleId(wt);
+            return { slot, bundleId: iosBundleId };
+        } else {
+            if (!androidPackageName) androidPackageName = discoverAndroidPackageName(wt);
+            return { slot, bundleId: androidPackageName };
+        }
+    });
+}
+
+function isAppInstalled(slot: Slot, bundleId: string): boolean {
+    return slot.platform === "ios"
+        ? isAppInstalledIos(slot.deviceId, bundleId)
+        : isAppInstalledAndroid(slot.deviceId, bundleId);
+}
+
+async function bootDevice(slot: Slot, timeoutSec: number): Promise<void> {
+    if (slot.platform === "ios") {
+        await bootIosSimulator(slot.deviceId, timeoutSec);
+    } else {
+        const consolePort = slot.androidConsolePort;
+        if (!consolePort) throw new Error(`android slot ${slot.id} missing androidConsolePort`);
+        await bootAndroidEmulator(slot.deviceId, consolePort, timeoutSec);
+    }
+}
+
+async function provisionDevice(
+    rd: ResolvedDevice,
+    wt: string,
+    metroPort: number,
+    fingerprint: string,
+    forceRebuild: boolean,
+    config: Config,
+    log: (msg: string) => void,
+): Promise<void> {
+    const { slot, bundleId } = rd;
+    const cachedFp = getCachedFingerprint(slot.deviceId, bundleId);
+    const installed = isAppInstalled(slot, bundleId);
+    const canSkipBuild = !forceRebuild && installed && cachedFp === fingerprint;
+
+    if (canSkipBuild) {
+        log(`[${slot.platform}/${slot.deviceId}] cache hit (${fingerprint.slice(0, 12)}); skipping rebuild`);
+    } else {
+        const reason = forceRebuild ? "forceRebuild=true"
+            : !installed ? "app not installed"
+            : !cachedFp ? "no cached fingerprint"
+            : "native fingerprint changed";
+        log(`[${slot.platform}/${slot.deviceId}] rebuild required (${reason})`);
+
+        if (slot.platform === "ios") {
+            uninstallIos(slot.deviceId, bundleId);
+            await withRetries(async () => installIosPods(wt),
+                { retries: config.retryProvisioner, backoffMs: 5000, label: `pod install ${slot.deviceId}` });
+            await withRetries(async () => buildIos(wt, slot.deviceId, metroPort, bundleId, config.readinessTimeouts.appInstallSec),
+                { retries: config.retryProvisioner, backoffMs: 5000, label: `build ios ${slot.deviceId}` });
+        } else {
+            uninstallAndroid(slot.deviceId, bundleId);
+            await withRetries(async () => buildAndroid(wt, slot.deviceId, metroPort, bundleId, config.readinessTimeouts.appInstallSec),
+                { retries: config.retryProvisioner, backoffMs: 5000, label: `build android ${slot.deviceId}` });
+        }
+        setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
+    }
+
+    log(`[${slot.platform}/${slot.deviceId}] pointing at metro :${metroPort}`);
+    if (slot.platform === "ios") {
+        setIosBundlerLocation(slot.deviceId, bundleId, metroPort);
+        launchIos(slot.deviceId, bundleId);
+    } else {
+        setAndroidBundlerLocation(slot.deviceId, metroPort);
+        launchAndroid(slot.deviceId, bundleId);
+    }
 }
 
 export async function runTask(
     descriptor: TaskDescriptor,
-    slot: Slot,
+    slots: Slot[],
     assignedMetroPort: number,
     config: Config,
 ): Promise<RunOutcome> {
@@ -43,7 +135,6 @@ export async function runTask(
     };
 
     try {
-        // Provision
         log("provisioning: worktree");
         await withRetries(async () => createWorktree(descriptor.repo, wt, `task/${descriptor.id}`, descriptor.baseBranch),
             { retries: config.retryProvisioner, backoffMs: 5000, label: "worktree" });
@@ -51,11 +142,13 @@ export async function runTask(
         await withRetries(async () => installDependencies(wt),
             { retries: config.retryProvisioner, backoffMs: 5000, label: "install" });
 
-        const bundleId = await readBundleId(wt);
+        const resolved = resolveDevices(slots, wt);
 
-        log(`provisioning: boot ios sim ${slot.deviceId}`);
-        await withRetries(async () => bootIosSimulator(slot.deviceId, config.readinessTimeouts.deviceBootSec),
-            { retries: config.retryProvisioner, backoffMs: 5000, label: "sim boot" });
+        log(`provisioning: boot ${resolved.length} device(s) in parallel`);
+        await Promise.all(resolved.map(rd =>
+            withRetries(async () => bootDevice(rd.slot, config.readinessTimeouts.deviceBootSec),
+                { retries: config.retryProvisioner, backoffMs: 5000, label: `boot ${rd.slot.platform} ${rd.slot.deviceId}` }),
+        ));
 
         log(`provisioning: start metro on :${assignedMetroPort}`);
         await withRetries(async () => startMetro(wt, assignedMetroPort, config.readinessTimeouts.metroReadySec, metroSessionName),
@@ -66,51 +159,21 @@ export async function runTask(
         log(`metro ready on :${assignedMetroPort}`);
 
         const fingerprint = nativeFingerprint(wt);
-        const cachedFp = getCachedFingerprint(slot.deviceId, bundleId);
-        const installed = isAppInstalledIos(slot.deviceId, bundleId);
         const forceRebuild = descriptor.forceRebuild ?? false;
-        const canSkipBuild = !forceRebuild && installed && cachedFp === fingerprint;
 
-        if (canSkipBuild) {
-            log(`skipping rebuild: app already installed and native fingerprint matches (${fingerprint.slice(0, 12)})`);
-        } else {
-            const reason = forceRebuild ? "forceRebuild=true"
-                : !installed ? "app not installed"
-                : !cachedFp ? "no cached fingerprint"
-                : "native fingerprint changed";
-            log(`provisioning: rebuild required (${reason})`);
-            log(`provisioning: uninstall app ${bundleId}`);
-            uninstallApp(slot.deviceId, bundleId);
-            log("provisioning: pod install");
-            await withRetries(async () => installIosPods(wt),
-                { retries: config.retryProvisioner, backoffMs: 5000, label: "pod install" });
-            log("provisioning: build & install app");
-            await withRetries(async () => buildAndInstall(wt, slot.deviceId, assignedMetroPort, bundleId, config.readinessTimeouts.appInstallSec),
-                { retries: config.retryProvisioner, backoffMs: 5000, label: "build" });
-            setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
-        }
+        await Promise.all(resolved.map(rd =>
+            provisionDevice(rd, wt, assignedMetroPort, fingerprint, forceRebuild, config, log),
+        ));
 
-        // Always launch — simctl launch is idempotent and brings the app to
-        // the foreground whether we just installed it or skipped the rebuild.
-        // RN sim apps default to localhost:8081 unless NSUserDefaults
-        // RCT_jsLocation overrides; setBundlerLocation writes that override
-        // before launch so the app probes our assigned Metro port.
-        log(`pointing app at metro on :${assignedMetroPort}`);
-        setBundlerLocation(slot.deviceId, bundleId, assignedMetroPort);
-        log(`launching app ${bundleId}`);
-        launchApp(slot.deviceId, bundleId);
-
-        // Run agent (headless)
         const userPrompt = readFileSync(descriptor.promptFile, "utf8");
+        const promptDevices: DeviceVar[] = resolved.map(rd => ({
+            platform: rd.slot.platform,
+            deviceId: rd.slot.deviceId,
+            bundleId: rd.bundleId,
+        }));
         const composed = renderPrompt({
             userPrompt,
-            vars: {
-                worktreePath: wt,
-                platform: "ios",
-                deviceId: slot.deviceId,
-                metroPort: assignedMetroPort,
-                bundleId,
-            },
+            vars: { worktreePath: wt, metroPort: assignedMetroPort, devices: promptDevices },
         });
         const headlessSystemPrompt = readFileSync(
             join(PATHS.templates, "headless-system-prompt.md"), "utf8",
@@ -142,7 +205,6 @@ export async function runTask(
             return { status: "failed", reason };
         }
 
-        // Commit (always) + push (optional)
         log("committing");
         commitIfDirty(wt, `task: ${descriptor.id}`);
         const branchName = `task/${descriptor.id}`;
@@ -165,12 +227,13 @@ export async function runTask(
             log(`to push manually: cd ${wt} && git push -u origin ${branchName}`);
         }
 
-        if (sessionId) {
-            log(`resume any time: cd ${wt} && claude --resume ${sessionId}`);
-        }
+        if (sessionId) log(`resume any time: cd ${wt} && claude --resume ${sessionId}`);
 
         if (config.notifications.macos) {
-            const lines: string[] = [`Metro: :${assignedMetroPort}`];
+            const lines: string[] = [`Metro: :${assignedMetroPort}`, "Devices:"];
+            for (const rd of resolved) {
+                lines.push(`  - ${rd.slot.platform} on ${rd.slot.deviceId} (slot ${rd.slot.id})`);
+            }
             if (prUrl) lines.push(`PR: ${prUrl}`);
             else if (config.pushOnDone) lines.push(`Branch: ${branchName} (open PR manually)`);
             else lines.push(`Branch: ${branchName} (not pushed)`);
@@ -185,8 +248,6 @@ export async function runTask(
         }
         return { status: "failed", reason: (e as Error).message };
     } finally {
-        // Headless runner spawns no extra side processes besides Metro,
-        // which still runs in its own tmux session for the worker's lifetime.
         stopMetro(metroSessionName, assignedMetroPort);
     }
 }
