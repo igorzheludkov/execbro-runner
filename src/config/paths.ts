@@ -10,6 +10,7 @@ export const PATHS = {
     templateAgentPreamble: join(ROOT, "templates", "agent-preamble.md"),
     templateVerificationSuffix: join(ROOT, "templates", "verification-suffix.md"),
     slots: join(ROOT, "slots"),
+    ports: join(ROOT, "ports"),
     queue: {
         inbox: join(ROOT, "queue", "inbox"),
         running: join(ROOT, "queue", "running"),
@@ -22,6 +23,10 @@ export const PATHS = {
 
 export function slotLockPath(slotId: number): string {
     return join(PATHS.slots, `slot-${slotId}.lock`);
+}
+
+export function portLockPath(port: number): string {
+    return join(PATHS.ports, `port-${port}.lock`);
 }
 
 export function worktreePath(taskId: string): string {
