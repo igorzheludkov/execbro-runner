@@ -1,16 +1,14 @@
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import * as tmux from "./tmux.js";
 import { renderPrompt } from "./prompt.js";
-import { isDone, findNewestTranscript, encodeProjectPath } from "./doneDetection.js";
+import { runHeadlessAgent } from "./headless.js";
 import { withRetries, createWorktree, installDependencies } from "../provisioner/shared.js";
 import { bootIosSimulator, uninstallApp, startMetro, stopMetro, buildAndInstall, installIosPods, launchApp } from "../provisioner/ios.js";
 import { nativeFingerprint } from "../provisioner/nativeFingerprint.js";
 import { getCachedFingerprint, setCachedFingerprint, isAppInstalledIos } from "../provisioner/installCache.js";
 import { commitIfDirty, pushBranch, getRemoteUrl, buildBitbucketPrUrl } from "../bitbucket/push.js";
 import { notifyMacos } from "../notify/macos.js";
-import type { TaskDescriptor } from "../queue/descriptor.js";
+import { writeDescriptor, type TaskDescriptor } from "../queue/descriptor.js";
 import type { Config, Slot } from "../config/schema.js";
 import { PATHS, worktreePath, logPath } from "../config/paths.js";
 
@@ -35,7 +33,6 @@ export async function runTask(
     config: Config,
 ): Promise<RunOutcome> {
     const wt = worktreePath(descriptor.id);
-    const sessionName = tmux.sessionName(descriptor.id);
     const metroSessionName = `execbro-metro-${descriptor.id}`;
     mkdirSync(PATHS.logs, { recursive: true });
     const log = (msg: string) => {
@@ -96,12 +93,7 @@ export async function runTask(
         log(`launching app ${bundleId}`);
         launchApp(slot.deviceId, bundleId);
 
-        // Run agent
-        log("starting tmux session for agent");
-        tmux.newDetachedSession(sessionName, wt);
-        tmux.sendKeys(sessionName, "claude", true);
-        await new Promise(r => setTimeout(r, 5000)); // wait for Claude to be ready to receive input
-
+        // Run agent (headless)
         const userPrompt = readFileSync(descriptor.promptFile, "utf8");
         const composed = renderPrompt({
             userPrompt,
@@ -113,32 +105,34 @@ export async function runTask(
                 bundleId,
             },
         });
-        // Use paste-buffer (bracketed paste) so embedded newlines do NOT
-        // submit partial messages to Claude Code's TUI. Then a brief pause
-        // for the TUI's input handler to process the paste, and an explicit
-        // Enter to submit.
-        tmux.pasteText(sessionName, composed);
-        await new Promise(r => setTimeout(r, 1000));
-        tmux.sendKeys(sessionName, "", true);
+        const headlessSystemPrompt = readFileSync(
+            join(PATHS.templates, "headless-system-prompt.md"), "utf8",
+        );
 
-        // Wait for done
-        log("waiting for agent to finish");
-        const projectDir = join(homedir(), ".claude", "projects", encodeProjectPath(wt));
-        const sessionStartMs = Date.now();
-        const stuckTimeoutMs = config.stuckTimeoutMinutes * 60 * 1000;
-        const idleSec = 60;
-        let detectedDone = false;
-        while (Date.now() - sessionStartMs < stuckTimeoutMs) {
-            await new Promise(r => setTimeout(r, 10_000));
-            const transcript = findNewestTranscript(projectDir, sessionStartMs);
-            if (transcript && isDone({ transcriptPath: transcript, idleSec })) {
-                detectedDone = true;
-                break;
+        log("starting headless agent");
+        const headlessLog = logPath(descriptor.id);
+        const { exitCode, sessionId } = await runHeadlessAgent({
+            prompt: composed,
+            systemPrompt: headlessSystemPrompt,
+            cwd: wt,
+            logPath: headlessLog,
+            onSessionId: id => {
+                descriptor.claudeSessionId = id;
+                writeDescriptor(join(PATHS.queue.running, `${descriptor.id}.json`), descriptor);
+                log(`session started: ${id}`);
+                log(`resume any time: cd ${wt} && claude --resume ${id}`);
+            },
+        });
+
+        if (exitCode !== 0) {
+            const reason = sessionId
+                ? `agent exited ${exitCode} (resume: cd ${wt} && claude --resume ${sessionId})`
+                : `agent exited ${exitCode} before emitting a session id`;
+            log(reason);
+            if (config.notifications.macos) {
+                notifyMacos(`ExecBro task FAILED: ${descriptor.id}`, reason);
             }
-        }
-        if (!detectedDone) {
-            log("stuck timeout reached");
-            return { status: "failed", reason: "stuck-timeout" };
+            return { status: "failed", reason };
         }
 
         // Push
@@ -149,8 +143,15 @@ export async function runTask(
         const prUrl = buildBitbucketPrUrl({ remoteUrl, sourceBranch: `task/${descriptor.id}`, destBranch: descriptor.baseBranch });
         log(`PR URL: ${prUrl}`);
 
+        if (sessionId) {
+            log(`resume any time: cd ${wt} && claude --resume ${sessionId}`);
+        }
+
         if (config.notifications.macos) {
-            notifyMacos(`ExecBro task done: ${descriptor.id}`, `Click to open PR: ${prUrl}`);
+            const body = sessionId
+                ? `PR: ${prUrl}\nResume: claude --resume ${sessionId}`
+                : `PR: ${prUrl}`;
+            notifyMacos(`ExecBro task done: ${descriptor.id}`, body);
         }
         return { status: "done" };
     } catch (e) {
@@ -160,10 +161,8 @@ export async function runTask(
         }
         return { status: "failed", reason: (e as Error).message };
     } finally {
-        // Always stop Metro and the agent session — orphan Metros hold the
-        // slot's port and break the next task. Worktree + logs are kept
-        // intact for forensics.
-        tmux.killSession(sessionName);
+        // Headless runner spawns no extra side processes besides Metro,
+        // which still runs in its own tmux session for the worker's lifetime.
         stopMetro(metroSessionName, slot.metroPort);
     }
 }
