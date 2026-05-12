@@ -82,6 +82,7 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const descriptor: TaskDescriptor = {
         id, promptFile, repo, baseBranch,
         devices, dependsOn: [],
+        parallel: false,
         createdAt: new Date().toISOString(),
         status: "queued",
         ...(opts.forceRebuild ? { forceRebuild: true } : {}),

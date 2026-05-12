@@ -14,6 +14,7 @@ import { discoverAndroidPackageName } from "../provisioner/android.js";
 import { isAppRunningIos, isAppRunningAndroid } from "../provisioner/installCache.js";
 import { findDevicesInUseByOtherMetros, rangeOf } from "../scheduler/metroProbe.js";
 import type { Config, Slot } from "../config/schema.js";
+import { canScheduleHead } from "./scheduling.js";
 
 function ensureDirs(): void {
     mkdirSync(PATHS.queue.inbox, { recursive: true });
@@ -27,6 +28,7 @@ function ensureDirs(): void {
 }
 
 const inFlightSlotIds = new Set<number>();
+let serialInFlightCount = 0;
 
 interface ScheduleAttempt {
     descriptor: TaskDescriptor;
@@ -46,6 +48,11 @@ async function tryScheduleHead(config: Config): Promise<ScheduleAttempt | null> 
         const doneIds = new Set(listDescriptors(PATHS.queue.done).map(d => d.id));
         if (!descriptor.dependsOn.every(id => doneIds.has(id))) return null;
     }
+
+    if (!canScheduleHead(descriptor, {
+        inFlightSlotCount: inFlightSlotIds.size,
+        serialInFlightCount,
+    })) return null;
 
     // Group required platforms.
     const counts = { ios: 0, android: 0 };
@@ -122,6 +129,7 @@ async function runScheduled(attempt: ScheduleAttempt, config: Config): Promise<v
     descriptor.assignedSlotIds = slots.map(s => s.id);
     writeDescriptor(inboxPath, descriptor);
     moveDescriptor(inboxPath, runningPath);
+    if (!descriptor.parallel) serialInFlightCount++;
     console.log(`[worker] picked up ${descriptor.id} on slots ${slots.map(s => s.id).join(",")}`);
 
     const portClaim = await claimPortFromRange(config.metroPortRange, portLockPath);
@@ -146,6 +154,7 @@ async function runScheduled(attempt: ScheduleAttempt, config: Config): Promise<v
     moveDescriptor(runningPath, join(finalDir, `${descriptor.id}.json`));
     for (const release of slotReleases) await release();
     for (const s of slots) inFlightSlotIds.delete(s.id);
+    if (!descriptor.parallel) serialInFlightCount--;
     console.log(`[worker] ${descriptor.id} → ${outcome.status}${outcome.reason ? ` (${outcome.reason})` : ""}`);
 
     void tryRunNext(config);
