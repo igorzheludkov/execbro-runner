@@ -80,6 +80,20 @@ npm run test:unit       # same as `test` for now (no integration suite yet)
 
 Integration verification is the manual `SMOKE_TEST.md` flow.
 
+## Serial vs parallel tasks
+
+By default each task runs **serial**: it waits until nothing else is running,
+then runs alone. To let a task run alongside other parallel tasks, pass
+`--parallel` when enqueueing it:
+
+```bash
+execbro-task add prompts/refactor.md --parallel
+```
+
+Parallel tasks may overlap with other parallel tasks (subject to free slots
+and Metro ports). A serial task acts as an implicit barrier: parallel tasks
+queued behind it wait until it finishes.
+
 ## Project conventions
 
 - TypeScript ESM, Node ≥ 18.
