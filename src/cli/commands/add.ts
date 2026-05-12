@@ -15,6 +15,7 @@ export interface AddOptions {
     devices?: string;
     force?: boolean;
     forceRebuild?: boolean;
+    parallel?: boolean;
 }
 
 function execbroRoot(): string {
@@ -82,7 +83,7 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const descriptor: TaskDescriptor = {
         id, promptFile, repo, baseBranch,
         devices, dependsOn: [],
-        parallel: false,
+        parallel: opts.parallel === true,
         createdAt: new Date().toISOString(),
         status: "queued",
         ...(opts.forceRebuild ? { forceRebuild: true } : {}),

@@ -70,4 +70,20 @@ describe("runAdd", () => {
         const second = await runAdd({ file: promptPath, force: true });
         expect(second.status).toBe("queued");
     });
+
+    it("defaults parallel to false when --parallel is not passed", async () => {
+        await runAdd({ file: promptPath });
+        const inbox = join(homeDir, "queue", "inbox");
+        const files = readdirSync(inbox);
+        const desc = JSON.parse(readFileSync(join(inbox, files[0]), "utf8"));
+        expect(desc.parallel).toBe(false);
+    });
+
+    it("sets parallel to true when --parallel is passed", async () => {
+        await runAdd({ file: promptPath, parallel: true });
+        const inbox = join(homeDir, "queue", "inbox");
+        const files = readdirSync(inbox);
+        const desc = JSON.parse(readFileSync(join(inbox, files[0]), "utf8"));
+        expect(desc.parallel).toBe(true);
+    });
 });

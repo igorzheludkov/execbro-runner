@@ -17,7 +17,8 @@ program
     .option("--devices <list>", "Comma-separated platforms: ios | android | ios,android | ios,ios | ... (default: ios)")
     .option("--force", "Enqueue even if a task with the same prompt file is already active")
     .option("--force-rebuild", "Force a full app rebuild even when the native fingerprint hasn't changed")
-    .action(async (file: string, opts: { repo?: string; devices?: string; force?: boolean; forceRebuild?: boolean }) => {
+    .option("--parallel", "Allow this task to run alongside other parallel tasks (default: serial — task runs alone)")
+    .action(async (file: string, opts: { repo?: string; devices?: string; force?: boolean; forceRebuild?: boolean; parallel?: boolean }) => {
         try {
             const desc = await runAdd({
                 file,
@@ -25,8 +26,9 @@ program
                 devices: opts.devices,
                 force: opts.force,
                 forceRebuild: opts.forceRebuild,
+                parallel: opts.parallel,
             });
-            console.log(`Enqueued ${desc.id}`);
+            console.log(`Enqueued ${desc.id} ${desc.parallel ? "[parallel]" : "[serial]"}`);
             console.log(`  repo: ${desc.repo}`);
             console.log(`  base: ${desc.baseBranch}`);
             console.log(`  devices: ${desc.devices.map(d => d.platform).join(",")}`);
