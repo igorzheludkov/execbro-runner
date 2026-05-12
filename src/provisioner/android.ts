@@ -67,6 +67,11 @@ export async function bootAndroidEmulator(
         ["-avd", avdName, "-port", String(consolePort), "-no-window", "-no-snapshot-load"],
         { detached: true, stdio: "ignore" },
     ).unref();
+    // Phase 1: kernel + adb readiness. `sys.boot_completed=1` means the
+    // kernel booted, but does NOT mean ActivityManagerService and Package
+    // ManagerService are accepting requests yet. Proceeding here would
+    // commonly hit "Too early to start activity" from `am start` and a
+    // hung `pm list packages` later in the flow.
     await pollUntil(async () => {
         const wait = spawnSync("adb", ["-s", deviceId, "wait-for-device"], { encoding: "utf8", timeout: 5000 });
         if (wait.status !== 0) return null;
@@ -76,10 +81,48 @@ export async function bootAndroidEmulator(
         if (r.status !== 0) return null;
         return parseBootCompleted(r.stdout) ? true : null;
     }, { timeoutMs: timeoutSec * 1000, intervalMs: 2000, label: `android boot ${avdName}` });
+    // Phase 2: services readiness. PMS is up when `pm path android`
+    // returns a path; AMS is up when `am get-current-user` returns cleanly.
+    await pollUntil(async () => {
+        const pm = spawnSync(
+            "adb", ["-s", deviceId, "shell", "pm", "path", "android"],
+            { encoding: "utf8", timeout: 5000 },
+        );
+        if (pm.status !== 0 || !pm.stdout.includes("package:")) return null;
+        const am = spawnSync(
+            "adb", ["-s", deviceId, "shell", "am", "get-current-user"],
+            { encoding: "utf8", timeout: 5000 },
+        );
+        if (am.status !== 0) return null;
+        return true;
+    }, { timeoutMs: timeoutSec * 1000, intervalMs: 2000, label: `android services ready ${avdName}` });
 }
 
 export function uninstallApp(deviceId: string, packageName: string): void {
-    spawnSync("adb", ["-s", deviceId, "uninstall", packageName], { encoding: "utf8" });
+    // 30s timeout: adb uninstall can wedge on slow / mid-boot devices and
+    // would otherwise block the Node event loop (spawnSync is synchronous),
+    // serializing parallel provisioning across slots.
+    spawnSync("adb", ["-s", deviceId, "uninstall", packageName], { encoding: "utf8", timeout: 30_000 });
+}
+
+/**
+ * Return host ports currently `adb reverse`-forwarded into this emulator.
+ * RN dev mode requires a tcp reverse from device→host on the Metro port,
+ * so existing forwards identify the Metro instance(s) the emulator is
+ * already paired with. `adb reverse --list` lines look like:
+ *   emulator-5554 tcp:8081 tcp:8081
+ * We pull the host-side port (the second `tcp:N`).
+ */
+export function readReverseTunnelHostPorts(deviceId: string): number[] {
+    // 10s timeout: adb can hang when a device is unreachable or in offline state.
+    const r = spawnSync("adb", ["-s", deviceId, "reverse", "--list"], { encoding: "utf8", timeout: 10_000 });
+    if (r.status !== 0) return [];
+    const ports: number[] = [];
+    for (const line of r.stdout.split("\n")) {
+        const m = line.match(/\btcp:\d+\s+tcp:(\d+)\b/);
+        if (m) ports.push(Number(m[1]));
+    }
+    return ports;
 }
 
 /**

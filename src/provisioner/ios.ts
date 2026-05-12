@@ -73,6 +73,42 @@ export interface IosProvisionInput {
     metroSessionName: string; // e.g. execbro-metro-<taskId>
 }
 
+// Cache of UDID → simulator display name. The list is stable across a
+// worker's lifetime (slots are config-pinned UDIDs), so one fetch is
+// enough; we re-run simctl only on cache miss.
+let simNameCache: Map<string, string> | null = null;
+
+/**
+ * Resolve an iOS simulator UDID to its display name (e.g. "iPhone Air").
+ *
+ * Used by the slot picker to compare against Metro's `/json` endpoint,
+ * which reports the sim by name rather than UDID. Returns null when
+ * simctl is unavailable or the UDID isn't found — caller treats null as
+ * "can't tell, don't over-skip".
+ */
+export function getSimNameByUdid(udid: string): string | null {
+    if (simNameCache && simNameCache.has(udid)) return simNameCache.get(udid)!;
+    const r = spawnSync(
+        "xcrun",
+        ["simctl", "list", "devices", "--json"],
+        { encoding: "utf8", timeout: 10_000 },
+    );
+    if (r.status !== 0) return simNameCache?.get(udid) ?? null;
+    try {
+        const data = JSON.parse(r.stdout) as {
+            devices: Record<string, Array<{ udid: string; name: string }>>;
+        };
+        const map = new Map<string, string>();
+        for (const list of Object.values(data.devices)) {
+            for (const d of list) map.set(d.udid, d.name);
+        }
+        simNameCache = map;
+        return map.get(udid) ?? null;
+    } catch {
+        return null;
+    }
+}
+
 export async function bootIosSimulator(udid: string, timeoutSec: number): Promise<void> {
     spawnSync("xcrun", ["simctl", "boot", udid], { encoding: "utf8" });
     // simctl boot returns 0 even if already booted; bootstatus blocks until ready.
@@ -84,8 +120,33 @@ export async function bootIosSimulator(udid: string, timeoutSec: number): Promis
 }
 
 export function uninstallApp(udid: string, bundleId: string): void {
-    spawnSync("xcrun", ["simctl", "uninstall", udid, bundleId], { encoding: "utf8" });
-    // Ignore failure; app may not be installed.
+    // 30s timeout: simctl uninstall can wedge if the app is mid-launch or the
+    // sim is in a transitional state, blocking the entire Node event loop
+    // (and therefore other slots' parallel provisioning) since spawnSync is
+    // strictly synchronous. Failure (incl. timeout) is ignored — the worst
+    // case is the subsequent install replaces a leftover binary, which is fine.
+    spawnSync("xcrun", ["simctl", "uninstall", udid, bundleId], { encoding: "utf8", timeout: 30_000 });
+}
+
+/**
+ * Read the bundler location the installed app is currently pinned to, via
+ * NSUserDefaults RCT_jsLocation. Returns null if the key isn't set (app
+ * never opened or default Metro target) or if the read fails (app not
+ * installed). The returned string is whatever the app wrote — typically
+ * `localhost:<port>`.
+ */
+export function readBundlerLocation(udid: string, bundleId: string): string | null {
+    // 10s timeout: simctl spawn can wedge if the sim is mid-boot/reboot/frozen,
+    // and the runner has no way to recover from an uncapped spawn — treat
+    // hangs as "no known bundler location" and proceed.
+    const r = spawnSync(
+        "xcrun",
+        ["simctl", "spawn", udid, "defaults", "read", bundleId, "RCT_jsLocation"],
+        { encoding: "utf8", timeout: 10_000 },
+    );
+    if (r.status !== 0) return null;
+    const v = r.stdout.trim();
+    return v || null;
 }
 
 /**

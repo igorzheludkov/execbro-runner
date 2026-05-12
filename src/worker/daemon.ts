@@ -9,6 +9,10 @@ import { claimPortFromRange } from "../scheduler/ports.js";
 import { listDescriptors, moveDescriptor } from "../queue/transitions.js";
 import { writeDescriptor, type TaskDescriptor } from "../queue/descriptor.js";
 import { runTask } from "../runner/run.js";
+import { discoverIosBundleId, getSimNameByUdid } from "../provisioner/ios.js";
+import { discoverAndroidPackageName } from "../provisioner/android.js";
+import { isAppRunningIos, isAppRunningAndroid } from "../provisioner/installCache.js";
+import { findDevicesInUseByOtherMetros, rangeOf } from "../scheduler/metroProbe.js";
 import type { Config, Slot } from "../config/schema.js";
 
 function ensureDirs(): void {
@@ -47,14 +51,57 @@ async function tryScheduleHead(config: Config): Promise<ScheduleAttempt | null> 
     const counts = { ios: 0, android: 0 };
     for (const dev of descriptor.devices) counts[dev.platform]++;
 
-    // Walk config slots in id order; pick free slots per platform up to the count.
+    // Pre-detect bundle ids from the source repo so we can probe each
+    // candidate slot for "is the dev currently using THIS app on this
+    // device" — autodetect reads static project files, no worktree needed.
+    // Tolerate detection failure (fall back to "no probe" → pick by id).
+    let iosBundleId: string | null = null;
+    let androidPackageName: string | null = null;
+    if (counts.ios > 0) {
+        try { iosBundleId = discoverIosBundleId(descriptor.repo); } catch { /* defer to runTask */ }
+    }
+    if (counts.android > 0) {
+        try { androidPackageName = discoverAndroidPackageName(descriptor.repo); } catch { /* defer */ }
+    }
+
+    // Discover which devices are currently paired with another Metro on
+    // this host (the dev's manual session, a concurrent runner task, etc.).
+    // Returned set holds device names as Metro reports them: "emulator-NNNN"
+    // for Android, the simulator's display name (e.g. "iPhone Air") for iOS.
+    const devicesPairedElsewhere = await findDevicesInUseByOtherMetros(
+        new Set(),
+        rangeOf(config.metroPortRange),
+    );
+
+    // Walk config slots in id order; pick the first free slot per platform
+    // that isn't currently in use. "In use" = paired with another Metro OR
+    // running the target app's process. The picker hops to the next free
+    // slot, so a dev's primary device is automatically left alone.
     const candidates: Slot[] = [];
     const want = { ios: counts.ios, android: counts.android };
     for (const slot of config.slots.slice().sort((a, b) => a.id - b.id)) {
         if (inFlightSlotIds.has(slot.id)) continue;
         if (slot.platform === "ios" && want.ios > 0) {
+            const simName = getSimNameByUdid(slot.deviceId);
+            if (simName && devicesPairedElsewhere.has(simName)) {
+                console.log(`[worker] skipping iOS slot ${slot.id} (${simName}): paired with another Metro`);
+                continue;
+            }
+            if (iosBundleId && isAppRunningIos(slot.deviceId, iosBundleId)) {
+                console.log(`[worker] skipping iOS slot ${slot.id} (${slot.deviceId}): ${iosBundleId} is currently running`);
+                continue;
+            }
             candidates.push(slot); want.ios--;
         } else if (slot.platform === "android" && want.android > 0) {
+            const adbId = slot.androidConsolePort != null ? `emulator-${slot.androidConsolePort}` : slot.deviceId;
+            if (devicesPairedElsewhere.has(adbId)) {
+                console.log(`[worker] skipping Android slot ${slot.id} (${adbId}): paired with another Metro`);
+                continue;
+            }
+            if (androidPackageName && isAppRunningAndroid(adbId, androidPackageName)) {
+                console.log(`[worker] skipping Android slot ${slot.id} (${slot.deviceId}): ${androidPackageName} is currently running`);
+                continue;
+            }
             candidates.push(slot); want.android--;
         }
     }

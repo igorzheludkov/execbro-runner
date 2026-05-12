@@ -1,3 +1,4 @@
+import { jest, describe, it, expect, beforeEach, afterEach } from "@jest/globals";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -74,6 +75,39 @@ describe("isAppInstalledAndroid", () => {
     it("returns false when adb fails", () => {
         const fakeSpawn = jest.fn().mockReturnValue({ status: 1, stdout: "", stderr: "no devices" });
         expect(isAppInstalledAndroid("emulator-5554", "com.example.myapp", fakeSpawn as never)).toBe(false);
+    });
+
+    it("invokes onProbeFailure with exit code and stderr when adb fails", () => {
+        const fakeSpawn = jest.fn().mockReturnValue({ status: 1, stdout: "", stderr: "no devices found" });
+        const onProbeFailure = jest.fn();
+        const result = isAppInstalledAndroid(
+            "emulator-5554",
+            "com.example.myapp",
+            fakeSpawn as never,
+            onProbeFailure,
+        );
+        expect(result).toBe(false);
+        expect(onProbeFailure).toHaveBeenCalledTimes(1);
+        const msg = onProbeFailure.mock.calls[0][0];
+        expect(msg).toContain("emulator-5554");
+        expect(msg).toContain("exit 1");
+        expect(msg).toContain("no devices found");
+    });
+
+    it("does not invoke onProbeFailure on a clean negative result", () => {
+        const fakeSpawn = jest.fn().mockReturnValue({
+            status: 0,
+            stdout: "package:com.android.systemui\n",
+            stderr: "",
+        });
+        const onProbeFailure = jest.fn();
+        expect(isAppInstalledAndroid(
+            "emulator-5554",
+            "com.example.myapp",
+            fakeSpawn as never,
+            onProbeFailure,
+        )).toBe(false);
+        expect(onProbeFailure).not.toHaveBeenCalled();
     });
 
     it("only matches whole package names (not substrings)", () => {
