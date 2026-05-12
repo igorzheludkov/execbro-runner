@@ -1,5 +1,7 @@
 # execbro-runner
 
+> ⚠️ **Early-alpha proof of concept.** APIs, config schema, CLI flags, and internal behavior will change without notice between versions. Don't depend on it in anything you can't afford to re-wire. Feedback and bug reports are welcome.
+
 Queue-based autonomous task runner for React Native apps. Drop in a markdown prompt, and a background daemon spins up an isolated sandbox (git worktree + iOS simulator or Android emulator + Metro), runs Claude Code headlessly against it, has the agent verify the change live on the device via the [ExecBro](https://github.com/igorzheludkov/react-native-ai-devtools) MCP server, then optionally pushes the resulting branch and surfaces a PR URL.
 
 **Fire-and-forget Claude Code runs for your React Native app, with real device verification baked in.**
