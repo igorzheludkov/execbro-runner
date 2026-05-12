@@ -126,6 +126,7 @@ describe("parallel field", () => {
 
     it("rejects non-boolean", () => {
         expect(() => DescriptorSchema.parse({ ...base, parallel: "yes" })).toThrow();
+        expect(() => DescriptorSchema.parse({ ...base, parallel: 1 })).toThrow();
     });
 });
 
