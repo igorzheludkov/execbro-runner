@@ -13,6 +13,7 @@ export const DescriptorSchema = z.object({
     baseBranch: z.string().min(1),
     devices: z.array(DeviceSchema).min(1),
     dependsOn: z.array(z.string()),
+    parallel: z.boolean().default(false),
     createdAt: z.string(),
     status: z.enum(["queued", "running", "done", "failed"]),
     forceRebuild: z.boolean().optional(),

@@ -107,6 +107,28 @@ describe("generateTaskId", () => {
     });
 });
 
+describe("parallel field", () => {
+    const base = {
+        id: "t1", promptFile: "/p.md", repo: "/r", baseBranch: "main",
+        devices: [{ platform: "ios" }], dependsOn: [],
+        createdAt: "2026-05-12T00:00:00Z", status: "queued",
+    };
+
+    it("defaults to false when omitted", () => {
+        const parsed = DescriptorSchema.parse(base);
+        expect(parsed.parallel).toBe(false);
+    });
+
+    it("accepts true", () => {
+        const parsed = DescriptorSchema.parse({ ...base, parallel: true });
+        expect(parsed.parallel).toBe(true);
+    });
+
+    it("rejects non-boolean", () => {
+        expect(() => DescriptorSchema.parse({ ...base, parallel: "yes" })).toThrow();
+    });
+});
+
 describe("read/writeDescriptor", () => {
     let dir: string;
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "execbro-test-")); });
@@ -117,6 +139,7 @@ describe("read/writeDescriptor", () => {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
             devices: [{ platform: "ios" as const }],
             dependsOn: [],
+            parallel: false,
             createdAt: "2026-05-10T10:00:00Z", status: "queued" as const,
         };
         const path = join(dir, "x.json");
@@ -130,6 +153,7 @@ describe("read/writeDescriptor", () => {
             id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
             devices: [{ platform: "ios" as const }],
             dependsOn: [],
+            parallel: false,
             createdAt: "x", status: "queued" as const,
         };
         const path = join(dir, "x.json");
