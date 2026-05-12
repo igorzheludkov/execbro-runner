@@ -24,9 +24,10 @@ export async function runList(): Promise<void> {
         const list: TaskDescriptor[] = listDescriptors(dir);
         console.log(`\n${label.toUpperCase()} (${list.length})`);
         for (const d of list) {
+            const mode = d.parallel ? "[parallel]" : "[serial]";
             const port = d.assignedMetroPort ? `  port=${d.assignedMetroPort}` : "";
             const session = d.claudeSessionId ? `  session=${d.claudeSessionId}` : "";
-            console.log(`  ${d.id}  ${formatDevices(d)}${formatSlots(d)}${port}${session}  ${d.repo}`);
+            console.log(`  ${d.id}  ${mode}  ${formatDevices(d)}${formatSlots(d)}${port}${session}  ${d.repo}`);
         }
     }
 }
