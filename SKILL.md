@@ -21,7 +21,7 @@ State lives under `~/.execbro/` (override with `EXECBRO_HOME`):
 - `~/.execbro/queue/{inbox,running,done,failed}/<id>.json` — task descriptors
 - `~/.execbro/worktrees/<id>/` — isolated git worktree per task, on a new branch `task/<id>`
 - `~/.execbro/logs/<id>.jsonl` — the full agent transcript (raw stream-json, one event per line — NOT a plain-text `.log`)
-- `~/.execbro/templates/` — `agent-preamble.md`, `verification-suffix-single.md`, `verification-suffix-multi.md`, `headless-system-prompt.md`. Meant to be auto-copied from the package's own `templates/` dir on first render, but that lookup (`process.argv[1]`/`cwd()` walked upward for a `package.json` named `execbro-runner`) fails when the CLI is invoked via a Homebrew/npm-link symlink — so on a symlinked global install this directory can end up missing files, surfacing as `ENOENT ... agent-preamble.md` deep into a run. If you hit that, copy the missing file(s) from `<execbro-runner install dir>/templates/` by hand.
+- `~/.execbro/templates/` — `agent-preamble.md`, `verification-suffix-single.md`, `verification-suffix-multi.md`, `headless-system-prompt.md`. Auto-copied from the package's own `templates/` dir on first render (resolved via the module's own real file location, so this works correctly even through a Homebrew/npm-link symlinked global install). If you're on a build that predates this fix and see `ENOENT ... agent-preamble.md`, copy the missing file(s) from `<execbro-runner install dir>/templates/` by hand as a one-off workaround.
 
 ## When to use
 
@@ -54,6 +54,8 @@ Do NOT use for interactive Claude Code sessions in the current workspace — the
 | Allow concurrent run | add `--parallel` |
 | Force re-enqueue when an active task already exists for the prompt | `--force` |
 | Force native rebuild | `--force-rebuild` |
+| Pin to one specific device (only valid with a single-platform `--devices`) | `--device <name>` (the slot's `deviceId` — AVD name for Android, UDID for iOS) |
+| Bypass the busy-device heuristics for this task | `--force-device` (does not bypass a disabled slot) |
 | Override auto-detected repo | `--repo <path>` |
 | List all tasks + status | `execbro-task list` |
 | Show one task descriptor | `execbro-task show <id>` |
@@ -61,13 +63,18 @@ Do NOT use for interactive Claude Code sessions in the current workspace — the
 | Attach interactively | `cd ~/.execbro/worktrees/<id> && claude --resume <session-id>` |
 | Clean one task | `execbro-task clean <id>` |
 | Clean all done / failed / running | `execbro-task clean --all-done` / `--all-failed` / `--all-running` |
+| Reserve a device for manual use without removing it from config | `execbro-task devices --disable <name>` (re-activate with `--enable <name>`) |
 
 **Any of the following require killing and restarting `execbro-worker`** — it loads `config.json` once at startup and only reacts to *new* files landing in `queue/inbox/` (no polling loop, no re-check timer):
 - After `clean --all-running`
-- After editing `~/.execbro/config.json` (by hand, or via `execbro-task init`) — e.g. adding/removing a device slot
+- After editing `~/.execbro/config.json` (by hand, via `execbro-task init`, or via `execbro-task devices --enable`/`--disable`) — e.g. adding/removing a device slot, or toggling one active/inactive
 - After rebuilding the runner's own source (`npm run build` inside the `execbro-runner` package, if you're patching the tool itself)
 
-There is no `--device <name>` flag to pin a task to one specific device slot — `--devices` only selects a platform. To dedicate a specific device, temporarily edit `~/.execbro/config.json` down to just that device's slot (then restart the worker, per above).
+### Dedicating / reserving devices
+
+A slot's `enabled` field (default `true`) controls whether the scheduler will ever pick it — a slot with `enabled: false` stays listed in `config.json` (and in `execbro-task devices`' output, annotated in a CONFIG column) but is never scheduled. Toggle it with `execbro-task devices --disable <name>` / `--enable <name>`, or by hand in `config.json`. This is the way to "keep the Pixel devices configured but never touch them" without deleting their slots — disable everything except the one device you want automation to use. `execbro-task init` preserves each rediscovered device's `enabled` value across a regeneration, so re-running `init` won't silently re-activate something you disabled.
+
+For a one-off pin instead of a standing config change, `execbro-task add --device <name>` restricts a single task to one specific slot (only valid when `--devices` resolves to exactly one platform) — it does not disable anything, just narrows that task's own candidate search to the named device.
 
 ## Workflow
 
@@ -97,10 +104,14 @@ When in doubt, leave it serial.
 
 ## Devices reported as "busy" — diagnosis and override
 
-Before assigning a device, the worker skips any device it believes the user (or another concurrent task) is already using, to avoid stomping a manual dev session — this is deliberate, not a bug, but it has no CLI override and the reasoning is invisible unless you read the worker's own log. Two independent checks, both adb/Metro-based, no config flag disables either:
+Before assigning a device, the worker skips any device it believes the user (or another concurrent task) is already using, to avoid stomping a manual dev session — this is deliberate, not a bug. Two independent checks, both adb/Metro-based:
 
-1. **App process already running** on the device (`adb shell pidof <packageName>` / `xcrun simctl spawn <udid> launchctl list`). Fix: `adb -s <deviceId> shell am force-stop <packageName>` (Android) or `xcrun simctl terminate <udid> <bundleId>` (iOS).
-2. **Device already paired with a different Metro** on the host — detected by hitting `/json` on common Metro ports (8081, 8082, 19000-19002, plus the worker's own configured range) and checking for the device's name in the connected-runtimes list. This shows up as `adb reverse --list` having a `tcp:8081` (or similar) entry pointing at someone else's live Metro. Fix: `adb -s <deviceId> reverse --remove tcp:<port>` (only removes the tunnel — does **not** touch the other Metro process itself, so a manual `expo start`/`react-native start` session you have running stays untouched).
+1. **App process already running** on the device (`adb shell pidof <packageName>` / `xcrun simctl spawn <udid> launchctl list`).
+2. **Device already paired with a different Metro** on the host — detected by hitting `/json` on common Metro ports (8081, 8082, 19000-19002, plus the worker's own configured range) and checking for the device's name in the connected-runtimes list. This shows up as `adb reverse --list` having a `tcp:8081` (or similar) entry pointing at someone else's live Metro.
+
+**If you know the device is actually free**, `execbro-task add --force-device` bypasses both checks for that task — no manual adb needed. (It does not bypass a disabled, `enabled: false` slot — that exclusion is deliberate, not a busy heuristic, and stays in force regardless.)
+
+**If the device genuinely is busy and you want to free it**, override manually: `adb -s <deviceId> shell am force-stop <packageName>` (Android) or `xcrun simctl terminate <udid> <bundleId>` (iOS) for the first check; `adb -s <deviceId> reverse --remove tcp:<port>` for the second (only removes the tunnel — does **not** touch the other Metro process itself, so a manual `expo start`/`react-native start` session you have running stays untouched).
 
 After either fix, the device is only re-evaluated once the worker either restarts (config-loaded-once, re-emits "add" for anything already in `inbox/`) or a new task is enqueued (which re-checks the current head-of-queue first, even if that new task itself can't run yet). If the blocked task already moved to `failed/`, `clean` + re-`add` it; if it's still `queued`, a worker restart alone is enough — no need to clean/re-add.
 
@@ -117,4 +128,5 @@ After either fix, the device is only re-evaluated once the worker either restart
 - This package is **early-alpha** (per its README). CLI flags and config schema may change — verify with `execbro-task <cmd> --help` if behavior surprises you.
 - The runner pre-configures the ExecBro MCP server pointed at the task's Metro, so the headless agent has device/log/network tools without extra setup.
 - **Expo managed-workflow support (added 2026-07-21):** `startMetro`/`buildAndInstall`/`launchApp` all branch on Expo detection (an `expo` dependency in `package.json`) and use `expo start` / `expo run:android`/`run:ios` / a `exp+<scheme>://expo-development-client/?url=...` deep link respectively, instead of assuming `@react-native-community/cli`. If a task fails with `react-native depends on @react-native-community/cli` anywhere in the worker log, or the app launches into a "Development servers" picker screen instead of connecting to the task's Metro, that's this detection failing or the app's scheme not being found — see the Prerequisites checklist above.
+- **Device enable/disable, `--device`, `--force-device` (added 2026-07-21):** see "Dedicating / reserving devices" and "Devices reported as busy" above.
 - **No dependency/batch orchestration yet.** The task scheduler does support a `dependsOn` field on the descriptor (a dependent task is held in `inbox/` until its deps are in `done/`) — but no CLI flag on `execbro-task add` sets it today, and even with it set, a dependent task's worktree still forks from the *original* base branch, not its upstream's resulting commits (no auto-merge/auto-rebase). For a batch of tasks with real interdependencies, either wait for each to land and merge into a shared branch manually before enqueuing the next, or don't use the runner for that batch — see `limitations.md` in this repo for the full analysis.
