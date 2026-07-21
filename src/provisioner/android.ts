@@ -137,17 +137,81 @@ export function setBundlerLocation(deviceId: string, port: number): void {
     }
 }
 
-export function launchApp(deviceId: string, packageName: string): void {
-    const r = spawnSync("adb", adbLaunchCommand(deviceId, packageName), { encoding: "utf8" });
+/**
+ * Expo managed-workflow projects don't depend on @react-native-community/cli,
+ * so `npx react-native run-android` silently no-ops instead of building.
+ * Detect Expo via the `expo` package and use `expo run:android` instead.
+ */
+function isExpoProject(worktreePath: string): boolean {
+    try {
+        const pkg = JSON.parse(readFileSync(join(worktreePath, "package.json"), "utf8"));
+        return Boolean(pkg?.dependencies?.expo || pkg?.devDependencies?.expo);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Read the Expo `scheme` — from app.json's `expo.scheme`, or a `scheme: '...'`
+ * literal in app.config.js/ts (dynamic config files, so we regex the source
+ * rather than require() it — matches the same static-extraction approach
+ * `discoverAndroidPackageName` uses for build.gradle). Returns null if no
+ * config file is found or no scheme is declared.
+ */
+function readExpoScheme(worktreePath: string): string | null {
+    const jsonPath = join(worktreePath, "app.json");
+    if (existsSync(jsonPath)) {
+        try {
+            const scheme = JSON.parse(readFileSync(jsonPath, "utf8"))?.expo?.scheme;
+            if (typeof scheme === "string" && scheme) return scheme;
+            if (Array.isArray(scheme) && typeof scheme[0] === "string") return scheme[0];
+        } catch { /* fall through to app.config.js/ts */ }
+    }
+    for (const file of ["app.config.js", "app.config.ts"]) {
+        const p = join(worktreePath, file);
+        if (!existsSync(p)) continue;
+        const m = readFileSync(p, "utf8").match(/scheme:\s*['"]([\w.+-]+)['"]/);
+        if (m) return m[1];
+    }
+    return null;
+}
+
+/**
+ * Expo dev-client builds show a "Development servers" picker screen on a
+ * bare `am start -n <activity>` launch instead of connecting straight to
+ * Metro — they need a `exp+<scheme>://expo-development-client/?url=...`
+ * deep link instead. Falls back to the plain activity launch for bare RN
+ * projects, or when the scheme can't be determined.
+ */
+export function launchApp(
+    deviceId: string,
+    packageName: string,
+    worktreePath?: string,
+    metroPort?: number,
+): void {
+    const scheme = worktreePath && metroPort != null && isExpoProject(worktreePath)
+        ? readExpoScheme(worktreePath)
+        : null;
+    const args = scheme
+        ? ["-s", deviceId, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d",
+            `exp+${scheme}://expo-development-client/?url=${encodeURIComponent(`http://localhost:${metroPort}`)}`]
+        : adbLaunchCommand(deviceId, packageName);
+    const r = spawnSync("adb", args, { encoding: "utf8" });
     if (r.status !== 0) {
         throw new Error(`adb shell am start failed for ${packageName}: ${r.stderr.trim() || r.stdout.trim()}`);
     }
 }
 
 /**
- * Build & install the Android app via @react-native-community/cli, then
- * poll `pm list packages` until the package shows up. `--no-packager`
- * mirrors the iOS flow: we already started Metro on `port`.
+ * Build & install the Android app via @react-native-community/cli (or
+ * `expo run:android` for Expo projects), then poll `pm list packages`
+ * until the package shows up. `--no-packager`/`--no-bundler` mirrors the
+ * iOS flow: we already started Metro on `port`.
+ *
+ * `expo run:android --device` matches against the emulator's AVD name
+ * (e.g. "Medium_Phone"), NOT the adb serial ("emulator-5554") that
+ * `deviceId` holds everywhere else in this file — so Expo projects need
+ * `avdName` (`slot.deviceId` at the call site) passed in separately.
  */
 export async function buildAndInstall(
     worktreePath: string,
@@ -155,11 +219,16 @@ export async function buildAndInstall(
     metroPort: number,
     packageName: string,
     timeoutSec: number,
+    avdName?: string,
 ): Promise<void> {
-    execSync(
-        `RCT_METRO_PORT=${metroPort} npx react-native run-android --deviceId ${deviceId} --no-packager`,
-        { cwd: worktreePath, stdio: "inherit" },
-    );
+    // `expo run:android` rejects `--port` together with `--no-bundler` (the
+    // port only means something when a bundler actually starts), so — like
+    // the bare-CLI branch — point the built app at our already-running
+    // external Metro via the RCT_METRO_PORT env var instead.
+    const command = isExpoProject(worktreePath)
+        ? `RCT_METRO_PORT=${metroPort} npx expo run:android --device ${avdName ?? deviceId} --no-bundler`
+        : `RCT_METRO_PORT=${metroPort} npx react-native run-android --deviceId ${deviceId} --no-packager`;
+    execSync(command, { cwd: worktreePath, stdio: "inherit" });
     await pollUntil(async () => {
         const r = spawnSync("adb", ["-s", deviceId, "shell", "pm", "list", "packages"], { encoding: "utf8" });
         if (r.status !== 0) return null;

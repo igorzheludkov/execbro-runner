@@ -172,12 +172,58 @@ export function setBundlerLocation(udid: string, bundleId: string, metroPort: nu
 }
 
 /**
+ * Read the Expo `scheme` — from app.json's `expo.scheme`, or a `scheme: '...'`
+ * literal in app.config.js/ts (dynamic config files, so we regex the source
+ * rather than require() it). Returns null if no config file is found or no
+ * scheme is declared.
+ */
+function readExpoScheme(worktreePath: string): string | null {
+    const jsonPath = join(worktreePath, "app.json");
+    if (existsSync(jsonPath)) {
+        try {
+            const scheme = JSON.parse(readFileSync(jsonPath, "utf8"))?.expo?.scheme;
+            if (typeof scheme === "string" && scheme) return scheme;
+            if (Array.isArray(scheme) && typeof scheme[0] === "string") return scheme[0];
+        } catch { /* fall through to app.config.js/ts */ }
+    }
+    for (const file of ["app.config.js", "app.config.ts"]) {
+        const p = join(worktreePath, file);
+        if (!existsSync(p)) continue;
+        const m = readFileSync(p, "utf8").match(/scheme:\s*['"]([\w.+-]+)['"]/);
+        if (m) return m[1];
+    }
+    return null;
+}
+
+/**
  * Launch the app on the sim. Idempotent — if the app is already running,
  * `simctl launch` terminates it first then relaunches, so we always end
  * up with a fresh process. Caller is responsible for `setBundlerLocation`
  * before launching when running on a non-default Metro port.
+ *
+ * Expo dev-client builds show a "Development servers" picker screen on a
+ * bare `simctl launch` instead of connecting straight to Metro — they need
+ * a `exp+<scheme>://expo-development-client/?url=...` deep link instead,
+ * opened via `simctl openurl`. Falls back to the plain launch for bare RN
+ * projects, or when the scheme can't be determined.
  */
-export function launchApp(udid: string, bundleId: string): void {
+export function launchApp(
+    udid: string,
+    bundleId: string,
+    worktreePath?: string,
+    metroPort?: number,
+): void {
+    const scheme = worktreePath && metroPort != null && isExpoProject(worktreePath)
+        ? readExpoScheme(worktreePath)
+        : null;
+    if (scheme) {
+        const url = `exp+${scheme}://expo-development-client/?url=${encodeURIComponent(`http://localhost:${metroPort}`)}`;
+        const r = spawnSync("xcrun", ["simctl", "openurl", udid, url], { encoding: "utf8" });
+        if (r.status !== 0) {
+            throw new Error(`simctl openurl ${bundleId} failed: ${r.stderr.trim() || r.stdout.trim()}`);
+        }
+        return;
+    }
     spawnSync("xcrun", ["simctl", "terminate", udid, bundleId], { encoding: "utf8" });
     const r = spawnSync("xcrun", ["simctl", "launch", udid, bundleId], { encoding: "utf8" });
     if (r.status !== 0) {
@@ -194,6 +240,21 @@ function killProcessOnPort(port: number): void {
     }
 }
 
+/**
+ * Expo managed-workflow projects don't depend on @react-native-community/cli,
+ * so `npx react-native start` silently no-ops (prints a warning, never binds
+ * the port) instead of launching Metro. Detect Expo via the `expo` package
+ * and use `expo start` instead, which wraps the same Metro server.
+ */
+function isExpoProject(worktreePath: string): boolean {
+    try {
+        const pkg = JSON.parse(readFileSync(join(worktreePath, "package.json"), "utf8"));
+        return Boolean(pkg?.dependencies?.expo || pkg?.devDependencies?.expo);
+    } catch {
+        return false;
+    }
+}
+
 export async function startMetro(
     worktreePath: string,
     port: number,
@@ -205,11 +266,10 @@ export async function startMetro(
     // (stale Metro from a previous failed run, etc.).
     killProcessOnPort(port);
     tmux.newDetachedSession(metroSessionName, worktreePath);
-    tmux.sendKeys(
-        metroSessionName,
-        `RCT_METRO_PORT=${port} npx react-native start --port ${port} --reset-cache`,
-        true,
-    );
+    const startCommand = isExpoProject(worktreePath)
+        ? `npx expo start --port ${port} -c`
+        : `RCT_METRO_PORT=${port} npx react-native start --port ${port} --reset-cache`;
+    tmux.sendKeys(metroSessionName, startCommand, true);
     await pollUntil(async () => {
         try {
             const r = spawnSync("curl", ["-sf", `http://localhost:${port}/status`], { encoding: "utf8" });
@@ -256,10 +316,16 @@ export async function buildAndInstall(
     bundleId: string,
     timeoutSec: number,
 ): Promise<void> {
-    // --no-packager: we already started Metro on metroPort; otherwise the CLI
-    // detects the existing Metro and prompts interactively for an alternate port,
-    // which hangs forever in non-interactive mode.
-    execSync(`RCT_METRO_PORT=${metroPort} npx react-native run-ios --udid ${udid} --no-packager`, {
+    // --no-packager/--no-bundler: we already started Metro on metroPort;
+    // otherwise the CLI detects the existing Metro and prompts interactively
+    // for an alternate port, which hangs forever in non-interactive mode.
+    // `expo run:ios` rejects `--port` together with `--no-bundler` (the port
+    // only means something when a bundler actually starts), so point the
+    // built app at our already-running external Metro via RCT_METRO_PORT.
+    const command = isExpoProject(worktreePath)
+        ? `RCT_METRO_PORT=${metroPort} npx expo run:ios --device ${udid} --no-bundler`
+        : `RCT_METRO_PORT=${metroPort} npx react-native run-ios --udid ${udid} --no-packager`;
+    execSync(command, {
         cwd: worktreePath, stdio: "inherit",
     });
     await pollUntil(async () => {

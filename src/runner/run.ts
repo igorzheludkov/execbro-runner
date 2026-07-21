@@ -167,7 +167,7 @@ async function provisionDevice(
                 { retries: config.retryProvisioner, backoffMs: 5000, label: `build ios ${slot.deviceId}` });
         } else {
             uninstallAndroid(adbDeviceId, bundleId);
-            await withRetries(async () => buildAndroid(wt, adbDeviceId, metroPort, bundleId, config.readinessTimeouts.appInstallSec),
+            await withRetries(async () => buildAndroid(wt, adbDeviceId, metroPort, bundleId, config.readinessTimeouts.appInstallSec, slot.deviceId),
                 { retries: config.retryProvisioner, backoffMs: 5000, label: `build android ${slot.deviceId}` });
         }
         setCachedFingerprint(slot.deviceId, bundleId, fingerprint);
@@ -176,10 +176,10 @@ async function provisionDevice(
     log(`[${slot.platform}/${slot.deviceId}] pointing at metro :${metroPort}`);
     if (slot.platform === "ios") {
         setIosBundlerLocation(adbDeviceId, bundleId, metroPort);
-        launchIos(adbDeviceId, bundleId);
+        launchIos(adbDeviceId, bundleId, wt, metroPort);
     } else {
         setAndroidBundlerLocation(adbDeviceId, metroPort);
-        launchAndroid(adbDeviceId, bundleId);
+        launchAndroid(adbDeviceId, bundleId, wt, metroPort);
     }
 }
 
