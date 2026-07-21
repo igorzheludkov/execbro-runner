@@ -92,6 +92,56 @@ describe("DescriptorSchema", () => {
             assignedMetroPort: 80,
         })).toThrow();
     });
+
+    it("accepts a device with a pinned deviceId", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            devices: [{ platform: "android", deviceId: "Medium_Phone" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        });
+        expect(parsed.devices[0].deviceId).toBe("Medium_Phone");
+    });
+
+    it("leaves deviceId undefined when omitted (not pinned)", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            devices: [{ platform: "ios" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        });
+        expect(parsed.devices[0].deviceId).toBeUndefined();
+    });
+
+    it("rejects an empty-string deviceId", () => {
+        expect(() => DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            devices: [{ platform: "ios", deviceId: "" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        })).toThrow();
+    });
+
+    it("accepts forceDevice: true", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            devices: [{ platform: "ios" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+            forceDevice: true,
+        });
+        expect(parsed.forceDevice).toBe(true);
+    });
+
+    it("leaves forceDevice undefined when omitted", () => {
+        const parsed = DescriptorSchema.parse({
+            id: "x", promptFile: "/p", repo: "/r", baseBranch: "main",
+            devices: [{ platform: "ios" }],
+            dependsOn: [],
+            createdAt: "2026-05-10T10:00:00Z", status: "queued",
+        });
+        expect(parsed.forceDevice).toBeUndefined();
+    });
 });
 
 describe("generateTaskId", () => {

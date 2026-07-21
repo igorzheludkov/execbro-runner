@@ -16,6 +16,8 @@ export interface AddOptions {
     force?: boolean;
     forceRebuild?: boolean;
     parallel?: boolean;
+    device?: string;
+    forceDevice?: boolean;
 }
 
 function execbroRoot(): string {
@@ -50,22 +52,32 @@ function findActiveTasksForPrompt(promptFile: string): { id: string; bucket: str
     return matches;
 }
 
-function parseDevices(raw: string | undefined): DeviceDecl[] {
+function parseDevices(raw: string | undefined, deviceName?: string): DeviceDecl[] {
     const list = (raw ?? "ios").split(",").map(s => s.trim()).filter(Boolean);
     if (list.length === 0) throw new Error(`--devices must list at least one platform`);
-    return list.map(token => {
+    const devices = list.map(token => {
         if (token !== "ios" && token !== "android") {
             throw new Error(`--devices entry "${token}" is not "ios" or "android"`);
         }
-        return { platform: token };
+        return { platform: token } as DeviceDecl;
     });
+    if (deviceName) {
+        if (devices.length !== 1) {
+            throw new Error(
+                `--device pins one specific device, which only makes sense with exactly one entry in --devices ` +
+                `(got "${raw ?? "ios"}"). Drop --device for multi-device tasks, or split into separate tasks.`,
+            );
+        }
+        devices[0].deviceId = deviceName;
+    }
+    return devices;
 }
 
 export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
     const promptFile = resolve(opts.file);
     if (!existsSync(promptFile)) throw new Error(`Prompt file not found: ${promptFile}`);
 
-    const devices = parseDevices(opts.devices);
+    const devices = parseDevices(opts.devices, opts.device);
     const repo = opts.repo ? resolve(opts.repo) : findGitRoot(dirname(promptFile));
 
     if (!opts.force) {
@@ -87,6 +99,7 @@ export async function runAdd(opts: AddOptions): Promise<TaskDescriptor> {
         createdAt: new Date().toISOString(),
         status: "queued",
         ...(opts.forceRebuild ? { forceRebuild: true } : {}),
+        ...(opts.forceDevice ? { forceDevice: true } : {}),
     };
     const inboxDir = join(execbroRoot(), "queue", "inbox");
     mkdirSync(inboxDir, { recursive: true });

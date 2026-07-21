@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderPrompt } from "../../../src/runner/prompt.js";
@@ -76,5 +76,42 @@ describe("renderPrompt", () => {
             },
         });
         expect(out).toContain(body);
+    });
+
+    // Regression test: findBuiltinTemplatesDir() used to resolve the
+    // package root by walking up from process.argv[1]/process.cwd() only.
+    // That breaks for a symlinked global install (argv[1] is the symlink
+    // itself, unrelated to the package root) combined with an unrelated
+    // cwd — exactly what happens when execbro-worker is invoked via a
+    // Homebrew/npm-link bin symlink from some other working directory.
+    // It now resolves via import.meta.url (this module's own real file
+    // location), which is immune to both.
+    it("auto-copies the real bundled templates when EXECBRO_HOME's are missing, even from an unrelated cwd", () => {
+        const emptyHome = mkdtempSync(join(tmpdir(), "execbro-prompt-empty-"));
+        const unrelatedCwd = mkdtempSync(join(tmpdir(), "execbro-unrelated-cwd-"));
+        const originalCwd = process.cwd();
+        const originalEnv = process.env.EXECBRO_HOME;
+        process.env.EXECBRO_HOME = emptyHome;
+        process.chdir(unrelatedCwd);
+        try {
+            const out = renderPrompt({
+                userPrompt: "Do the thing.",
+                vars: {
+                    worktreePath: "/wt",
+                    metroPort: 8092,
+                    devices: [{ platform: "ios", deviceId: "U", bundleId: "b" }],
+                },
+            });
+            // Only present in the genuine bundled agent-preamble.md — proves
+            // the real package templates were found and copied, not a stub.
+            expect(out).toContain("You are running as an autonomous coding agent inside the ExecBro task runner.");
+            expect(existsSync(join(emptyHome, "templates", "agent-preamble.md"))).toBe(true);
+        } finally {
+            process.chdir(originalCwd);
+            if (originalEnv === undefined) delete process.env.EXECBRO_HOME;
+            else process.env.EXECBRO_HOME = originalEnv;
+            rmSync(emptyHome, { recursive: true, force: true });
+            rmSync(unrelatedCwd, { recursive: true, force: true });
+        }
     });
 });

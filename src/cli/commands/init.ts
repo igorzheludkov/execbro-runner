@@ -45,12 +45,27 @@ export function buildSlots(
  * `slots` field while preserving every other top-level entry verbatim.
  * Input is plain JSON (not Zod-parsed), so unknown fields survive — the
  * runtime config-load step is what enforces the strict schema.
+ *
+ * A rediscovered device (matched by `deviceId`) keeps its existing
+ * `enabled` value — otherwise every `init` re-run would silently
+ * re-activate a slot the user deliberately disabled. Genuinely new
+ * devices get no `enabled` field at all (schema defaults it to `true`).
  */
 export function mergeConfig(
     existing: Record<string, unknown>,
     newSlots: BuiltSlot[],
 ): Record<string, unknown> {
-    return { ...existing, slots: newSlots };
+    const oldSlots = Array.isArray(existing.slots) ? existing.slots as Record<string, unknown>[] : [];
+    const oldEnabledByDeviceId = new Map(
+        oldSlots
+            .filter(s => typeof s.enabled === "boolean")
+            .map(s => [s.deviceId, s.enabled as boolean]),
+    );
+    const slots = newSlots.map(slot => {
+        const enabled = oldEnabledByDeviceId.get(slot.deviceId);
+        return enabled === undefined ? slot : { ...slot, enabled };
+    });
+    return { ...existing, slots };
 }
 
 export interface SlotSummary {

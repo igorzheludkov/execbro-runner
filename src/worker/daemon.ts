@@ -5,6 +5,7 @@ import chokidar from "chokidar";
 import { loadConfig } from "../config/loader.js";
 import { PATHS, slotLockPath, portLockPath } from "../config/paths.js";
 import { tryClaimSlots, type SlotRelease } from "../scheduler/slots.js";
+import { selectCandidateSlots } from "../scheduler/candidates.js";
 import { claimPortFromRange } from "../scheduler/ports.js";
 import { listDescriptors, moveDescriptor } from "../queue/transitions.js";
 import { writeDescriptor, type TaskDescriptor } from "../queue/descriptor.js";
@@ -80,39 +81,27 @@ async function tryScheduleHead(config: Config): Promise<ScheduleAttempt | null> 
         rangeOf(config.metroPortRange),
     );
 
-    // Walk config slots in id order; pick the first free slot per platform
-    // that isn't currently in use. "In use" = paired with another Metro OR
-    // running the target app's process. The picker hops to the next free
-    // slot, so a dev's primary device is automatically left alone.
-    const candidates: Slot[] = [];
-    const want = { ios: counts.ios, android: counts.android };
-    for (const slot of config.slots.slice().sort((a, b) => a.id - b.id)) {
-        if (inFlightSlotIds.has(slot.id)) continue;
-        if (slot.platform === "ios" && want.ios > 0) {
+    // Walk config slots in id order; pick the first enabled, free slot per
+    // platform that isn't currently in use. "In use" = paired with another
+    // Metro OR running the target app's process (skipped unless the task
+    // sets forceDevice). The picker hops to the next eligible slot, so a
+    // dev's primary device is automatically left alone.
+    const isBusy = (slot: Slot): string | null => {
+        if (slot.platform === "ios") {
             const simName = getSimNameByUdid(slot.deviceId);
-            if (simName && devicesPairedElsewhere.has(simName)) {
-                console.log(`[worker] skipping iOS slot ${slot.id} (${simName}): paired with another Metro`);
-                continue;
-            }
-            if (iosBundleId && isAppRunningIos(slot.deviceId, iosBundleId)) {
-                console.log(`[worker] skipping iOS slot ${slot.id} (${slot.deviceId}): ${iosBundleId} is currently running`);
-                continue;
-            }
-            candidates.push(slot); want.ios--;
-        } else if (slot.platform === "android" && want.android > 0) {
-            const adbId = slot.androidConsolePort != null ? `emulator-${slot.androidConsolePort}` : slot.deviceId;
-            if (devicesPairedElsewhere.has(adbId)) {
-                console.log(`[worker] skipping Android slot ${slot.id} (${adbId}): paired with another Metro`);
-                continue;
-            }
-            if (androidPackageName && isAppRunningAndroid(adbId, androidPackageName)) {
-                console.log(`[worker] skipping Android slot ${slot.id} (${slot.deviceId}): ${androidPackageName} is currently running`);
-                continue;
-            }
-            candidates.push(slot); want.android--;
+            if (simName && devicesPairedElsewhere.has(simName)) return "paired with another Metro";
+            if (iosBundleId && isAppRunningIos(slot.deviceId, iosBundleId)) return `${iosBundleId} is currently running`;
+            return null;
         }
-    }
-    if (want.ios !== 0 || want.android !== 0) return null;
+        const adbId = slot.androidConsolePort != null ? `emulator-${slot.androidConsolePort}` : slot.deviceId;
+        if (devicesPairedElsewhere.has(adbId)) return "paired with another Metro";
+        if (androidPackageName && isAppRunningAndroid(adbId, androidPackageName)) return `${androidPackageName} is currently running`;
+        return null;
+    };
+    const { candidates, satisfied } = selectCandidateSlots(
+        config.slots, descriptor, inFlightSlotIds, isBusy, console.log,
+    );
+    if (!satisfied) return null;
 
     const slotReleases = await tryClaimSlots(candidates.map(s => slotLockPath(s.id)));
     if (!slotReleases) return null;

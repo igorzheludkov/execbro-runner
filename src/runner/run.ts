@@ -224,6 +224,10 @@ export async function runTask(
 
         log(`probing ${resolved.length} device(s) for in-use state`);
         const busyMap = resolved.map(rd => {
+            if (descriptor.forceDevice) {
+                log(`  [${rd.slot.platform}/${rd.slot.deviceId}] busy probe skipped (forceDevice)`);
+                return { rd, reason: null };
+            }
             log(`  [${rd.slot.platform}/${rd.slot.deviceId}] busy probe`);
             const reason = findBusyReason(rd, assignedMetroPort);
             const summary = reason == null

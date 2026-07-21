@@ -4,6 +4,9 @@ import { z } from "zod";
 
 const DeviceSchema = z.object({
     platform: z.enum(["ios", "android"]),
+    // Pin to one specific config.json slot's deviceId for this platform,
+    // instead of letting the scheduler pick the first free/enabled one.
+    deviceId: z.string().min(1).optional(),
 }).strict();
 
 export const DescriptorSchema = z.object({
@@ -17,6 +20,11 @@ export const DescriptorSchema = z.object({
     createdAt: z.string(),
     status: z.enum(["queued", "running", "done", "failed"]),
     forceRebuild: z.boolean().optional(),
+    // Bypass the "is this device already in use" heuristics (app process
+    // running / paired with another Metro) at both scheduling time and
+    // provisioning time. Does NOT bypass a disabled (`enabled: false`)
+    // slot — that's a deliberate exclusion, not a busy heuristic.
+    forceDevice: z.boolean().optional(),
     claudeSessionId: z.string().optional(),
     assignedMetroPort: z.number().int().min(1024).max(65535).optional(),
     assignedSlotIds: z.array(z.number().int().positive()).optional(),

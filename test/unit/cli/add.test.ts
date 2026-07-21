@@ -86,4 +86,24 @@ describe("runAdd", () => {
         const desc = JSON.parse(readFileSync(join(inbox, files[0]), "utf8"));
         expect(desc.parallel).toBe(true);
     });
+
+    it("--device pins the deviceId on the single requested platform", async () => {
+        const desc = await runAdd({ file: promptPath, devices: "android", device: "Medium_Phone" });
+        expect(desc.devices).toEqual([{ platform: "android", deviceId: "Medium_Phone" }]);
+    });
+
+    it("--device rejects a multi-platform --devices list (ambiguous which platform it pins)", async () => {
+        await expect(runAdd({ file: promptPath, devices: "ios,android", device: "Medium_Phone" }))
+            .rejects.toThrow(/--device pins one specific device/i);
+    });
+
+    it("omits forceDevice from the descriptor when --force-device is not passed", async () => {
+        const desc = await runAdd({ file: promptPath });
+        expect(desc.forceDevice).toBeUndefined();
+    });
+
+    it("--force-device sets forceDevice: true on the descriptor", async () => {
+        const desc = await runAdd({ file: promptPath, forceDevice: true });
+        expect(desc.forceDevice).toBe(true);
+    });
 });

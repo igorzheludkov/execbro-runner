@@ -18,7 +18,9 @@ program
     .option("--force", "Enqueue even if a task with the same prompt file is already active")
     .option("--force-rebuild", "Force a full app rebuild even when the native fingerprint hasn't changed")
     .option("--parallel", "Allow this task to run alongside other parallel tasks (default: serial — task runs alone)")
-    .action(async (file: string, opts: { repo?: string; devices?: string; force?: boolean; forceRebuild?: boolean; parallel?: boolean }) => {
+    .option("--device <name>", "Pin to one specific device's deviceId from config.json, instead of letting the scheduler pick the first free/enabled one (only valid when --devices selects a single platform)")
+    .option("--force-device", "Bypass the busy-device check (app process running / paired with another Metro) for this task's device(s) — use when you know a device is actually free despite the heuristic. Does not bypass a disabled (enabled: false) slot.")
+    .action(async (file: string, opts: { repo?: string; devices?: string; force?: boolean; forceRebuild?: boolean; parallel?: boolean; device?: string; forceDevice?: boolean }) => {
         try {
             const desc = await runAdd({
                 file,
@@ -27,6 +29,8 @@ program
                 force: opts.force,
                 forceRebuild: opts.forceRebuild,
                 parallel: opts.parallel,
+                device: opts.device,
+                forceDevice: opts.forceDevice,
             });
             console.log(`Enqueued ${desc.id} ${desc.parallel ? "[parallel]" : "[serial]"}`);
             console.log(`  repo: ${desc.repo}`);
@@ -40,7 +44,19 @@ program
 
 program.command("list").description("List all tasks by status").action(runList);
 program.command("show <id>").description("Show a task descriptor and log path").action(runShow);
-program.command("devices").description("List available iOS sims and Android AVDs").action(runDevices);
+program
+    .command("devices")
+    .description("List available iOS sims and Android AVDs (annotated with config.json state), or enable/disable a configured slot")
+    .option("--enable <name>", "Mark a configured device slot active (available for scheduling) — name is the slot's deviceId")
+    .option("--disable <name>", "Mark a configured device slot inactive — kept in config.json but never scheduled, e.g. to reserve it for manual use")
+    .action(async (opts: { enable?: string; disable?: string }) => {
+        try {
+            await runDevices(opts);
+        } catch (e) {
+            console.error(`Error: ${(e as Error).message}`);
+            process.exit(1);
+        }
+    });
 
 program
     .command("init")

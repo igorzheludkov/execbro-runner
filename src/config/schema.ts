@@ -6,6 +6,10 @@ const SlotSchema = z.object({
     deviceId: z.string().min(1),
     androidConsolePort: z.number().int().min(5554).max(5680).optional(),
     metroPort: z.number().int().min(1024).max(65535).optional(),
+    // Kept in config but never scheduled when false — e.g. to reserve a
+    // device for manual use while still listing it. Defaults to true so
+    // every existing config.json without this field keeps working as-is.
+    enabled: z.boolean().default(true),
 });
 
 const MetroPortRangeSchema = z

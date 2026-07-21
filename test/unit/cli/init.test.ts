@@ -68,6 +68,38 @@ describe("mergeConfig", () => {
         expect(merged.notifications).toEqual({ macos: false, slackWebhook: "https://hooks.example/x" });
         expect(merged.slots).toEqual([]);
     });
+
+    it("carries a rediscovered device's enabled: false across regeneration", () => {
+        const existing = {
+            slots: [{ id: 5, platform: "android", deviceId: "Pixel_9", enabled: false }],
+        };
+        const newSlots = [{ id: 1, platform: "android" as const, deviceId: "Pixel_9" }];
+        const merged = mergeConfig(existing, newSlots);
+        expect(merged.slots).toEqual([{ id: 1, platform: "android", deviceId: "Pixel_9", enabled: false }]);
+    });
+
+    it("carries a rediscovered device's enabled: true across regeneration too (explicit, not just default)", () => {
+        const existing = {
+            slots: [{ id: 5, platform: "ios", deviceId: "UDID-1", enabled: true }],
+        };
+        const newSlots = [{ id: 1, platform: "ios" as const, deviceId: "UDID-1" }];
+        const merged = mergeConfig(existing, newSlots);
+        expect(merged.slots).toEqual([{ id: 1, platform: "ios", deviceId: "UDID-1", enabled: true }]);
+    });
+
+    it("does not add an enabled field for a genuinely new device", () => {
+        const existing = { slots: [{ id: 5, platform: "ios", deviceId: "OTHER", enabled: false }] };
+        const newSlots = [{ id: 1, platform: "ios" as const, deviceId: "BRAND-NEW" }];
+        const merged = mergeConfig(existing, newSlots);
+        expect(merged.slots).toEqual([{ id: 1, platform: "ios", deviceId: "BRAND-NEW" }]);
+    });
+
+    it("ignores an old slot's enabled field when the old config predates it (no enabled key at all)", () => {
+        const existing = { slots: [{ id: 5, platform: "ios", deviceId: "UDID-1" }] };
+        const newSlots = [{ id: 1, platform: "ios" as const, deviceId: "UDID-1" }];
+        const merged = mergeConfig(existing, newSlots);
+        expect(merged.slots).toEqual([{ id: 1, platform: "ios", deviceId: "UDID-1" }]);
+    });
 });
 
 describe("summarize", () => {

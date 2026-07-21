@@ -57,4 +57,25 @@ describe("ConfigSchema", () => {
         };
         expect(() => ConfigSchema.parse(bad)).toThrow();
     });
+
+    it("defaults a slot's enabled to true when omitted (every existing config.json keeps working)", () => {
+        const parsed = ConfigSchema.parse({
+            slots: [{ id: 1, platform: "ios", deviceId: "X" }],
+        });
+        expect(parsed.slots[0].enabled).toBe(true);
+    });
+
+    it("preserves an explicit enabled: false", () => {
+        const parsed = ConfigSchema.parse({
+            slots: [{ id: 1, platform: "android", deviceId: "Pixel_9", enabled: false }],
+        });
+        expect(parsed.slots[0].enabled).toBe(false);
+    });
+
+    it("rejects a non-boolean enabled", () => {
+        const bad = {
+            slots: [{ id: 1, platform: "ios", deviceId: "X", enabled: "no" }],
+        };
+        expect(() => ConfigSchema.parse(bad)).toThrow();
+    });
 });

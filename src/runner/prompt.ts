@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 export interface DeviceVar {
@@ -35,16 +36,30 @@ const TEMPLATE_FILES = [
 ];
 
 /**
- * Find this package's `templates/` directory by walking up from the bin
- * script (in production: an installed CLI; under jest: the jest runner) or
- * from cwd as a last-resort fallback. Returns null when the package root
- * cannot be located — callers must tolerate the absence (tests pre-write
- * templates to EXECBRO_HOME, so the copy step is a no-op).
+ * Find this package's `templates/` directory.
+ *
+ * Primary strategy: walk up from this module's own file location
+ * (`import.meta.url` → real path on disk). Node resolves relative imports
+ * against the module graph's real files, not however the entry binary was
+ * invoked, so this works even when `execbro-worker`/`execbro-task` is a
+ * Homebrew/npm-link symlink pointing somewhere unrelated to the package
+ * root — which is exactly the case that broke the old argv[1]/cwd-based
+ * walk (argv[1] is the symlink path itself, and cwd is whatever directory
+ * the caller happened to be in).
+ *
+ * Falls back to argv[1] then cwd for environments where import.meta.url
+ * isn't anchored inside the package (e.g. a bundled/inlined build). Returns
+ * null when no candidate locates the package root — callers must tolerate
+ * the absence (tests pre-write templates to EXECBRO_HOME, so the copy step
+ * is a no-op).
  */
 function findBuiltinTemplatesDir(): string | null {
-    const candidates = [process.argv[1], process.cwd()].filter(Boolean) as string[];
-    for (const start of candidates) {
-        let dir = existsSync(start) ? dirname(start) : start;
+    const startDirs = [
+        dirname(fileURLToPath(import.meta.url)),
+        ...[process.argv[1], process.cwd()].filter(Boolean).map(p => (existsSync(p) ? dirname(p) : p)),
+    ] as string[];
+    for (const start of startDirs) {
+        let dir = start;
         while (dir && dir !== "/" && dir !== ".") {
             const pkgPath = join(dir, "package.json");
             if (existsSync(pkgPath)) {
